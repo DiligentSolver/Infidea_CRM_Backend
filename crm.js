@@ -1,0 +1,129 @@
+require("dotenv").config();
+const express = require("express");
+const app = express();
+const dotenv = require("dotenv");
+const cors = require("cors");
+const helmet = require("helmet");
+const connectDB = require("./config/db");
+const employeeAuthRoutes = require("./routes/employeeAuthRoutes");
+const employeeDashboardRoutes = require("./routes/employeeDashboardRoutes");
+const lineupRoutes = require("./routes/lineupRoutes");
+const joiningRoutes = require("./routes/joiningRoutes");
+const walkinRoutes = require("./routes/walkinRoutes");
+const candidateRoutes = require("./routes/candidateRoutes");
+const activityRoutes = require("./routes/activityRoutes");
+const leaveRoutes = require("./routes/leaveRoutes");
+const errorHandler = require("./middleware/errorHandler");
+const { client } = require("./utils/redisClient");
+const notificationRoutes = require("./routes/notificationRoutes");
+const limiter = require("./middleware/ratelimiterRedis");
+const settingRoutes = require("./routes/settingRoutes");
+const languageRoutes = require("./routes/languageRoutes");
+const frontendApis = require("./frontendApis"); // Import frontend APIs
+const fileUpload = require("express-fileupload");
+const path = require("path");
+const { scheduleActivityClosing } = require("./utils/scheduledTasks");
+const { initScheduler } = require("./utils/scheduler");
+
+dotenv.config();
+connectDB();
+
+// Initialize scheduled tasks
+scheduleActivityClosing();
+initScheduler(); // Initialize candidate lock scheduler
+
+const http = require("http");
+const { Server } = require("socket.io");
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Allow all origins (modify for production)
+    methods: ["GET", "POST"],
+  },
+});
+
+// Make io globally available
+global.io = io;
+
+// Middleware to make `io` accessible in controllers
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
+app.use(cors());
+app.use(helmet());
+app.use(express.json());
+app.options("*", cors());
+app.use(errorHandler);
+
+// Serve static files from the public directory
+app.use(express.static(path.join(__dirname, "public")));
+
+// Apply rate limiter to all API routes
+// app.use("/api", limiter);
+
+// Routes
+app.use("/crm/api/auth/employee", employeeAuthRoutes);
+app.use("/crm/api/employee", employeeDashboardRoutes);
+app.use("/crm/api", frontendApis); //Frontend apis
+app.use("/crm/api/setting", settingRoutes);
+app.use("/crm/api/language", languageRoutes);
+app.use("/crm/api/lineups", lineupRoutes);
+app.use("/crm/api/joinings", joiningRoutes);
+app.use("/crm/api/walkins", walkinRoutes);
+app.use("/crm/api/candidates", candidateRoutes);
+app.use("/crm/api/activity", activityRoutes);
+app.use("/crm/api/leaves", leaveRoutes);
+
+// Configure file upload middleware
+app.use(
+  fileUpload({
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max file size
+    useTempFiles: false,
+    abortOnLimit: true,
+  })
+);
+
+const PORT = process.env.PORT || 5300;
+// Change from app.listen to server.listen for Socket.io
+server.listen(PORT, () =>
+  console.info(`CRM_SERVER running on port ${PORT} with WebSockets enabled`)
+);
+
+// Socket.io connection handler
+io.on("connection", (socket) => {
+  console.log("A client connected", socket.id);
+
+  // Join employee to their personal room
+  socket.on("join-employee-room", (employeeId) => {
+    if (employeeId) {
+      socket.join(`employee-${employeeId}`);
+      console.log(`Employee ${employeeId} joined their room`);
+    }
+  });
+
+  // Handle client disconnection
+  socket.on("disconnect", () => {
+    console.log("A client disconnected", socket.id);
+  });
+});
+
+app.get("/crm/api/health-check", (req, res) => {
+  res.send("Hello, World!");
+  console.info("Hello, World");
+});
+
+async function closeRedis() {
+  if (client.isOpen) {
+    console.log("Closing Redis connection...");
+    await client.quit();
+  } else {
+    console.log("Redis client is already closed.");
+  }
+  process.exit(0);
+}
+
+process.on("SIGINT", closeRedis); // Handles Ctrl + C
+process.on("SIGTERM", closeRedis); // Handles process termination
