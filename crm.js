@@ -22,7 +22,10 @@ const languageRoutes = require("./routes/languageRoutes");
 const frontendApis = require("./frontendApis"); // Import frontend APIs
 const fileUpload = require("express-fileupload");
 const path = require("path");
-const { scheduleActivityClosing } = require("./utils/scheduledTasks");
+const {
+  scheduleActivityClosing,
+  scheduleNotificationCleanup,
+} = require("./utils/scheduledTasks");
 const { initScheduler } = require("./utils/scheduler");
 
 dotenv.config();
@@ -76,6 +79,7 @@ app.use("/crm/api/walkins", walkinRoutes);
 app.use("/crm/api/candidates", candidateRoutes);
 app.use("/crm/api/activity", activityRoutes);
 app.use("/crm/api/leaves", leaveRoutes);
+app.use("/crm/api/notifications", notificationRoutes);
 
 // Configure file upload middleware
 app.use(
@@ -101,6 +105,41 @@ io.on("connection", (socket) => {
     if (employeeId) {
       socket.join(`employee-${employeeId}`);
       console.log(`Employee ${employeeId} joined their room`);
+    }
+  });
+
+  // Handle read notification event
+  socket.on("read_notification", async (data) => {
+    try {
+      const { notificationId, employeeId } = data;
+      if (!notificationId || !employeeId) return;
+
+      const Notification = require("./models/notificationModel");
+      await Notification.findOneAndUpdate(
+        { _id: notificationId, recipient: employeeId },
+        { status: "read" }
+      );
+    } catch (error) {
+      console.error("Error marking notification as read via socket:", error);
+    }
+  });
+
+  // Handle read all notifications event
+  socket.on("read_all_notifications", async (data) => {
+    try {
+      const { employeeId } = data;
+      if (!employeeId) return;
+
+      const Notification = require("./models/notificationModel");
+      await Notification.updateMany(
+        { recipient: employeeId, status: "unread" },
+        { status: "read" }
+      );
+    } catch (error) {
+      console.error(
+        "Error marking all notifications as read via socket:",
+        error
+      );
     }
   });
 

@@ -5,6 +5,8 @@ const Walkin = require("../models/walkinModel");
 const Candidate = require("../models/candidateModel");
 const Employee = require("../models/employeeModel");
 const Leave = require("../models/leaveModel");
+const Attendance = require("../models/attendanceModel");
+const mongoose = require("mongoose");
 
 /**
  * Format minutes into hours and minutes string
@@ -331,11 +333,21 @@ const getCompleteAnalytics = handleAsync(async (req, res) => {
       employee: employeeId,
     });
 
-    const totalIncentives = await Joining.countDocuments({
-      createdBy: employeeId,
-      "incentives.eligible": true,
-      "incentives.calculated": true,
-    });
+    const totalIncentives = await Joining.aggregate([
+      {
+        $match: {
+          createdBy: new mongoose.Types.ObjectId(employeeId),
+          "incentives.eligible": true,
+          "incentives.calculated": true,
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$incentives.amount" },
+        },
+      },
+    ]).then((result) => (result.length > 0 ? result[0].total : 0));
 
     const offerDrops = await Lineup.countDocuments({
       createdBy: employeeId,
@@ -1084,6 +1096,38 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
       ],
     }).lean();
 
+    // Get all attendance records for the specified month
+    const attendanceRecords = await Attendance.find({
+      employee: employeeId,
+      date: { $gte: startDate, $lte: endDate },
+    }).lean();
+
+    // Create a map of attendance records by date for easier lookup
+    const attendanceMap = {};
+    attendanceRecords.forEach((record) => {
+      const date = new Date(record.date);
+      const day = date.getDate();
+      attendanceMap[day] = record;
+    });
+
+    // Create a map of leave records by date for easier lookup
+    const leaveMap = {};
+    leaves.forEach((leave) => {
+      const leaveStart = new Date(
+        Math.max(new Date(leave.startDate), startDate)
+      );
+      const leaveEnd = new Date(Math.min(new Date(leave.endDate), endDate));
+
+      for (
+        let current = new Date(leaveStart);
+        current <= leaveEnd;
+        current.setDate(current.getDate() + 1)
+      ) {
+        const day = current.getDate();
+        leaveMap[day] = leave;
+      }
+    });
+
     // Initialize calendar data for the month
     const totalDays = endDate.getDate();
     const calendarData = {};
@@ -1096,7 +1140,13 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
 
       // Check if it's a Sunday (always weekoff)
       if (dayOfWeek === 0) {
-        calendarData[day] = { status: "Week Off", type: "WO" };
+        calendarData[day] = {
+          status: "Week Off",
+          type: "WO",
+          present: false,
+          leave: null,
+          attendance: null,
+        };
         continue;
       }
 
@@ -1107,130 +1157,121 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
 
         // Check if it's 2nd or 4th Saturday (weekoff)
         if (weekOfMonth === 2 || weekOfMonth === 4) {
-          calendarData[day] = { status: "Week Off", type: "WO" };
+          calendarData[day] = {
+            status: "Week Off",
+            type: "WO",
+            present: false,
+            leave: null,
+            attendance: null,
+          };
           continue;
         }
       }
 
       // Check if the date is in the future
       if (currentDate > today) {
-        calendarData[day] = { status: "Upcoming", type: "U" };
+        calendarData[day] = {
+          status: "Upcoming",
+          type: "U",
+          present: false,
+          leave: null,
+          attendance: null,
+        };
         continue;
       }
 
-      // Default to present if not a weekoff or future date
-      calendarData[day] = { status: "Present", type: "P" };
-    }
+      // For past dates, check attendance and leave records
+      const attendance = attendanceMap[day];
+      const leave = leaveMap[day];
 
-    // Apply leaves to calendar
-    for (const leave of leaves) {
-      const leaveStart = new Date(leave.startDate);
-      const leaveEnd = new Date(leave.endDate);
+      // Default status if no attendance or leave record
+      let status = "No Record";
+      let type = "NR";
+      let present = false;
 
-      // Abbreviate leave reasons
-      let leaveType;
-      switch (leave.leaveReason) {
-        case "Sick Leave":
-          leaveType = "SL";
-          break;
-        case "Privilege Leave":
-          leaveType = "PL";
-          break;
-        case "Casual Leave":
-          leaveType = "CL";
-          break;
-        case "Sandwich Leave":
-          leaveType = "SDL";
-          break;
-        default:
-          leaveType = "L";
-      }
-
-      // Get the leave duration type
-      let durationLabel;
-      switch (leave.leaveType) {
-        case "Half Day":
-          durationLabel = "HD";
-          break;
-        case "Early Logout":
-          durationLabel = "EL";
-          break;
-        case "Full Day":
-        default:
-          durationLabel = ""; // No special label for full day
-      }
-
-      // Create the full leave label - combine reason abbreviation with duration type if needed
-      const fullLeaveType = durationLabel
-        ? `${leaveType}-${durationLabel}`
-        : leaveType;
-
-      // Set the leave status based on approval status
-      const leaveStatus =
-        leave.status === "Approved"
-          ? `${fullLeaveType} (Approved)`
-          : leave.status === "Rejected"
-          ? `${fullLeaveType} (Rejected)`
-          : `${fullLeaveType} (Pending)`;
-
-      // Mark all days in the leave period
-      for (
-        let current = new Date(Math.max(leaveStart, startDate));
-        current <= new Date(Math.min(leaveEnd, endDate));
-        current.setDate(current.getDate() + 1)
-      ) {
-        const dayOfMonth = current.getDate();
-        calendarData[dayOfMonth] = {
-          status: leaveStatus,
-          type: fullLeaveType,
-          leaveId: leave._id,
-          approved: leave.status === "Approved",
-          leaveType: leave.leaveType,
-          leaveReason: leave.leaveReason,
-          description: leave.description || "",
-        };
-      }
-    }
-
-    // Check for sandwich leaves
-    // A leave is considered a sandwich if it's on a working Saturday and the next
-    // Monday with Sunday in between, and the leave is not approved yet
-    const daysInMonth = Object.keys(calendarData).map(Number);
-
-    for (let i = 0; i < daysInMonth.length - 2; i++) {
-      const day = daysInMonth[i];
-      const dayDate = new Date(targetYear, targetMonth, day);
-
-      // Check if it's a working Saturday (1st, 3rd, 5th)
-      if (dayDate.getDay() === 6) {
-        const weekOfMonth = Math.ceil(day / 7);
-        if (weekOfMonth !== 2 && weekOfMonth !== 4) {
-          // It's a working Saturday, check if it's on leave
-          const saturdayData = calendarData[day];
-
-          if (
-            saturdayData.type !== "P" &&
-            saturdayData.type !== "WO" &&
-            !saturdayData.approved
-          ) {
-            // Saturday is on leave (not approved), check Monday
-            const monday = day + 2; // Sunday + Monday
-
-            if (monday <= totalDays) {
-              const mondayData = calendarData[monday];
-
-              // If Monday is also on leave (not approved), make Sunday a sandwich leave
-              if (
-                mondayData.type !== "P" &&
-                mondayData.type !== "WO" &&
-                !mondayData.approved
-              ) {
-                const sunday = day + 1;
-              }
-            }
-          }
+      // If attendance record exists
+      if (attendance) {
+        present = attendance.present;
+        if (present) {
+          status = "Present";
+          type = "P";
         }
       }
+
+      // Leave record overrides attendance
+      if (leave) {
+        // Abbreviate leave reasons
+        let leaveType;
+        switch (leave.leaveReason) {
+          case "Sick Leave":
+            leaveType = "SL";
+            break;
+          case "Privilege Leave":
+            leaveType = "PL";
+            break;
+          case "Casual Leave":
+            leaveType = "CL";
+            break;
+          case "Sandwich Leave":
+            leaveType = "SDL";
+            break;
+          default:
+            leaveType = "L";
+        }
+
+        // Get the leave duration type
+        let durationLabel;
+        switch (leave.leaveType) {
+          case "Half Day":
+            durationLabel = "HD";
+            break;
+          case "Early Logout":
+            durationLabel = "EL";
+            break;
+          case "Full Day":
+          default:
+            durationLabel = ""; // No special label for full day
+        }
+
+        // Create the full leave label
+        const fullLeaveType = durationLabel
+          ? `${leaveType}-${durationLabel}`
+          : leaveType;
+
+        // Set the leave status based on approval status
+        status =
+          leave.status === "Approved"
+            ? `${fullLeaveType} (Approved)`
+            : leave.status === "Rejected"
+            ? `${fullLeaveType} (Rejected)`
+            : `${fullLeaveType} (Pending)`;
+
+        type = fullLeaveType;
+        present = false; // If on leave, not present
+      }
+
+      calendarData[day] = {
+        status,
+        type,
+        present,
+        leaveDetails: leave
+          ? {
+              id: leave._id,
+              type: leave.leaveType,
+              reason: leave.leaveReason,
+              status: leave.status,
+              description: leave.description || "",
+              approved: leave.status === "Approved",
+            }
+          : null,
+        attendanceDetails: attendance
+          ? {
+              id: attendance._id,
+              date: attendance.date,
+              present: attendance.present,
+            }
+          : null,
+      };
     }
 
     return res.status(200).json({
@@ -1240,6 +1281,23 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
         year: targetYear,
         totalDays,
         calendar: calendarData,
+        presentDays: attendanceRecords.filter((record) => record.present)
+          .length,
+        leaveDays: leaves.reduce((total, leave) => {
+          // Count days within the month for each leave
+          const leaveStart = new Date(
+            Math.max(new Date(leave.startDate), startDate)
+          );
+          const leaveEnd = new Date(Math.min(new Date(leave.endDate), endDate));
+
+          // Calculate number of days
+          const diffTime = Math.abs(leaveEnd - leaveStart);
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+          return total + diffDays;
+        }, 0),
+        attendanceRecords,
+        leaves,
       },
     });
   } catch (error) {

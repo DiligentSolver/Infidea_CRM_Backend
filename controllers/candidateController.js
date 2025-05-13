@@ -35,6 +35,31 @@ exports.checkDuplicity = handleAsync(async (req, res, next) => {
     }
   }
 
+  // Notify the original employee who registered this candidate
+  // only if it's a different employee checking
+  if (
+    candidate.lastRegisteredBy &&
+    candidate.lastRegisteredBy._id.toString() !== req.employee._id.toString()
+  ) {
+    try {
+      const {
+        createDuplicityCheckNotification,
+      } = require("./notificationController");
+
+      const checkingEmployee = await Employee.findById(req.employee._id);
+
+      await createDuplicityCheckNotification(
+        candidate,
+        checkingEmployee,
+        candidate.lastRegisteredBy._id,
+        req.io
+      );
+    } catch (error) {
+      console.error("Error sending notification:", error);
+      // Continue with the response even if notification fails
+    }
+  }
+
   return res.status(200).json({
     status: "success",
     isDuplicate: true,
@@ -110,6 +135,11 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
     });
   }
 
+  // Store the previous owner's ID before we change it
+  const previousOwnerId = candidate.lastRegisteredBy
+    ? candidate.lastRegisteredBy._id
+    : null;
+
   // Only lock the candidate if they have a lockable status (lineup or walkin)
   const hasLockableStatus =
     candidate.callStatus &&
@@ -138,6 +168,27 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
   candidate.registrationLockExpiry = registrationLockExpiry;
   candidate.isLocked = hasLockableStatus;
   await candidate.save();
+
+  // Send notification to the previous owner
+  if (previousOwnerId) {
+    try {
+      const {
+        createCandidateMarkNotification,
+      } = require("./notificationController");
+
+      const markingEmployee = await Employee.findById(req.employee._id);
+
+      await createCandidateMarkNotification(
+        candidate,
+        markingEmployee,
+        previousOwnerId,
+        req.io
+      );
+    } catch (error) {
+      console.error("Error sending notification:", error);
+      // Continue with the response even if notification fails
+    }
+  }
 
   res.status(200).json({
     status: "success",
@@ -612,6 +663,14 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     (!wasAlreadyLockableStatus ||
       existingCandidate.registrationLockExpiry < new Date())
   ) {
+    // Store the previous owner's ID before we change it
+    const previousOwnerId = existingCandidate.lastRegisteredBy
+      ? existingCandidate.lastRegisteredBy.toString() ===
+        req.employee._id.toString()
+        ? null
+        : existingCandidate.lastRegisteredBy
+      : null;
+
     // Set registration lock for 30 days
     const registrationLockExpiry = new Date();
     registrationLockExpiry.setDate(registrationLockExpiry.getDate() + 30);
@@ -640,6 +699,30 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
 
     req.body.lastRegisteredBy = req.employee._id;
     req.body.registrationHistory = existingCandidate.registrationHistory;
+
+    // Send notification to the previous owner if it's a different employee
+    if (previousOwnerId) {
+      try {
+        const {
+          createCandidateMarkNotification,
+        } = require("./notificationController");
+
+        const markingEmployee = await Employee.findById(req.employee._id);
+
+        await createCandidateMarkNotification(
+          existingCandidate,
+          markingEmployee,
+          previousOwnerId,
+          req.io
+        );
+      } catch (error) {
+        console.error(
+          "Error sending notification during status update:",
+          error
+        );
+        // Continue with the update even if notification fails
+      }
+    }
   }
 
   // Merge the candidate data with the request body
@@ -872,6 +955,11 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
           continue;
         }
 
+        // Store the previous owner's ID before we change it
+        const previousOwnerId = existingCandidate.lastRegisteredBy
+          ? existingCandidate.lastRegisteredBy._id
+          : null;
+
         // If candidate exists but is not locked and not already registered by this employee, mark them
         // Only lock the candidate if they have a lockable status (lineup or walkin)
         const hasLockableStatus =
@@ -916,6 +1004,30 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
 
         // Save the changes
         await existingCandidate.save();
+
+        // Send notification to the previous owner
+        if (previousOwnerId) {
+          try {
+            const {
+              createCandidateMarkNotification,
+            } = require("./notificationController");
+
+            const markingEmployee = await Employee.findById(req.employee._id);
+
+            await createCandidateMarkNotification(
+              existingCandidate,
+              markingEmployee,
+              previousOwnerId,
+              req.io
+            );
+          } catch (error) {
+            console.error(
+              "Error sending notification during bulk upload:",
+              error
+            );
+            // Continue with the process even if notification fails
+          }
+        }
 
         // Increment marked count
         results.marked++;

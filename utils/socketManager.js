@@ -39,8 +39,23 @@ const emitDashboardUpdate = (employeeId, stats) => {
   }
 };
 
+/**
+ * Emit a notification to a specific employee
+ * @param {String} employeeId - ID of the recipient employee
+ * @param {Object} notification - Notification object to send
+ */
+const emitNotification = (employeeId, notification) => {
+  if (global.io) {
+    global.io.to(`employee-${employeeId}`).emit("new_notification", {
+      notification,
+    });
+    console.log("Emitted notification to employee:", employeeId);
+  }
+};
+
 module.exports = {
   emitNewFeed,
   emitFeedUpdate,
   emitDashboardUpdate,
+  emitNotification,
 };

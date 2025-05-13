@@ -36,6 +36,16 @@ const createLineup = handleAsync(async (req, res) => {
     });
   }
 
+  // Check if candidate exists with this contact number
+  const candidate = await Candidate.findOne({ mobileNo: contactNumber });
+  if (!candidate) {
+    return res.status(404).json({
+      success: false,
+      message:
+        "No candidate found with this contact number. Please register the candidate first.",
+    });
+  }
+
   // Check if candidate exists and is locked using the utility function
   const lockStatus = await checkCandidateLock(contactNumber);
   if (lockStatus && lockStatus.isLocked) {
@@ -43,6 +53,22 @@ const createLineup = handleAsync(async (req, res) => {
       success: false,
       message: "This candidate is locked for 90 days due to selection status",
       lockExpiryDate: lockStatus.lockExpiryDate,
+    });
+  }
+
+  // Check for existing lineup with same key details to prevent duplicates
+  const existingLineup = await Lineup.findOne({
+    contactNumber,
+    company,
+    process,
+    createdBy: req.employee._id,
+  });
+
+  if (existingLineup) {
+    return res.status(409).json({
+      success: false,
+      message: "A lineup with these details already exists",
+      lineup: existingLineup,
     });
   }
 
@@ -61,13 +87,17 @@ const createLineup = handleAsync(async (req, res) => {
     remarks,
   });
 
-  // Update candidate's lineup fields if candidate exists and lastRegisteredBy matches
-  const candidate = await Candidate.findOne({ mobileNo: contactNumber });
+  // Update candidate's lineup fields
   if (
-    candidate &&
     candidate.lastRegisteredBy &&
     candidate.lastRegisteredBy.toString() === req.employee._id.toString()
   ) {
+    const remarkHistory = {
+      remark: remarks,
+      date: Date.now(),
+      employee: req.employee._id,
+    };
+
     await Candidate.findByIdAndUpdate(candidate._id, {
       lineupCompany: company,
       customLineupCompany: customCompany,
@@ -75,7 +105,7 @@ const createLineup = handleAsync(async (req, res) => {
       customLineupProcess: customProcess,
       lineupDate,
       interviewDate,
-      remarks,
+      remarks: remarkHistory,
     });
   }
 
@@ -175,12 +205,11 @@ const updateLineup = handleAsync(async (req, res) => {
     candidate.lastRegisteredBy &&
     candidate.lastRegisteredBy.toString() === req.employee._id.toString()
   ) {
-    const remarksHistory = [];
-    remarksHistory.push({
-      remark: lineup.remarks,
-      date: new Date(),
+    const remarkHistory = {
+      remark: req.body.remarks,
+      date: Date.now(),
       employee: req.employee._id,
-    });
+    };
 
     const updateCandidate = {
       lineupCompany: lineup.company,
@@ -189,7 +218,7 @@ const updateLineup = handleAsync(async (req, res) => {
       customLineupProcess: lineup.customProcess,
       lineupDate: lineup.lineupDate,
       interviewDate: lineup.interviewDate,
-      remarks: remarksHistory,
+      remarks: remarkHistory,
     };
 
     // If status is "Selected", lock the candidate for 90 days
@@ -201,6 +230,24 @@ const updateLineup = handleAsync(async (req, res) => {
       updateCandidate.status = "Selected";
       updateCandidate.isLocked = true;
       updateCandidate.registrationLockExpiry = lockExpiryDate;
+    } else if (updateData.status && updateData.status !== "Selected") {
+      // Check if callStatus is "lineup" - if yes, set expiry to 30 days instead of unlocking
+      if (
+        candidate.callStatus &&
+        candidate.callStatus.toLowerCase() === "lineup"
+      ) {
+        const lockExpiryDate = new Date();
+        lockExpiryDate.setDate(lockExpiryDate.getDate() + 30);
+
+        updateCandidate.status = updateData.status;
+        updateCandidate.isLocked = true;
+        updateCandidate.registrationLockExpiry = lockExpiryDate;
+      } else {
+        // Unlock the candidate if status is updated to something other than "Selected" and not lineup
+        updateCandidate.status = updateData.status;
+        updateCandidate.isLocked = false;
+        updateCandidate.registrationLockExpiry = null;
+      }
     }
 
     await Candidate.findByIdAndUpdate(candidate._id, updateCandidate);

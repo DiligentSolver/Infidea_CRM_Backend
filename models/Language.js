@@ -10,7 +10,6 @@ const languageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-
     flag: {
       type: String,
       required: false,

@@ -7,6 +7,8 @@ const {
   isEligibleStatus,
   getIncentiveRates,
 } = require("../utils/incentiveCalculator");
+const Candidate = require("../models/candidateModel");
+const Lineup = require("../models/lineupModel");
 
 /**
  * Updates incentives for a joining
@@ -112,6 +114,30 @@ const createJoining = handleAsync(async (req, res) => {
     });
   }
 
+  // Check if candidate exists with this contact number
+  const candidate = await Candidate.findOne({ mobileNo: contactNumber });
+  if (!candidate) {
+    return res.status(404).json({
+      success: false,
+      message:
+        "No candidate found with this contact number. Please register the candidate first.",
+    });
+  }
+
+  // Check if lineup exists with this contact number
+  const lineup = await Lineup.findOne({
+    contactNumber: contactNumber,
+    company: company,
+    process: process,
+  });
+  if (!lineup) {
+    return res.status(404).json({
+      success: false,
+      message:
+        "No lineup found with this contact number for the specified company and process. Please create a lineup first.",
+    });
+  }
+
   // Create the joining
   let joining = await Joining.create({
     candidateName,
@@ -152,6 +178,7 @@ const createJoining = handleAsync(async (req, res) => {
 
 // Get all joinings with pagination
 const getAllJoinings = handleAsync(async (req, res) => {
+  // Get all joinings for the employee
   const joinings = await Joining.find({
     createdBy: req.employee._id,
   })
@@ -159,13 +186,66 @@ const getAllJoinings = handleAsync(async (req, res) => {
     .populate("createdBy", "name")
     .sort({ createdAt: -1 });
 
-  const totalJoinings = await Joining.countDocuments();
+  // Find eligible joinings
+  const eligibleJoinings = joinings.filter((joining) =>
+    isEligibleStatus(joining.status)
+  );
+
+  // Count international and domestic joinings
+  const internationalCount = eligibleJoinings.filter(
+    (j) => j.joiningType === "International"
+  ).length;
+  const domesticCount = eligibleJoinings.filter(
+    (j) => j.joiningType === "Domestic"
+  ).length;
+
+  // Calculate incentives
+  const incentiveResult = calculateIncentives({
+    domestic: domesticCount,
+    international: internationalCount,
+  });
+
+  // Update incentives for all joinings
+  const updatePromises = joinings.map(async (joining) => {
+    if (isEligibleStatus(joining.status) && incentiveResult.eligible) {
+      const ratePerJoining =
+        joining.joiningType === "International"
+          ? incentiveResult.internationalRate
+          : incentiveResult.domesticRate;
+
+      joining.incentives = {
+        eligible: true,
+        amount: ratePerJoining,
+        calculated: true,
+      };
+    } else {
+      joining.incentives = {
+        eligible: false,
+        amount: 0,
+        calculated: true,
+      };
+    }
+
+    return joining.save();
+  });
+
+  await Promise.all(updatePromises);
+
+  const totalJoinings = joinings.length;
 
   return res.status(200).json({
     success: true,
     message: "Joinings fetched successfully",
     joinings,
     totalJoinings,
+    incentiveSummary: {
+      counts: {
+        international: internationalCount,
+        domestic: domesticCount,
+        total: internationalCount + domesticCount,
+      },
+      incentives: incentiveResult,
+    },
   });
 });
 
@@ -345,6 +425,19 @@ const calculateEmployeeIncentives = handleAsync(async (req, res) => {
       joining.incentives = {
         eligible: true,
         amount: ratePerJoining,
+        calculated: true,
+      };
+
+      return joining.save();
+    });
+
+    await Promise.all(updatePromises);
+  } else {
+    // If not eligible, update all joinings to have zero incentives
+    const updatePromises = joinings.map(async (joining) => {
+      joining.incentives = {
+        eligible: false,
+        amount: 0,
         calculated: true,
       };
 

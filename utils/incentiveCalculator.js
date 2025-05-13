@@ -30,12 +30,15 @@ const calculateIncentives = (counts) => {
       international: 0,
       total: 0,
       eligible: false,
+      domesticRate: 0,
+      internationalRate: 0,
       message: "Incentives only apply when total joinings are 10 or more.",
     };
   }
 
-  // Calculate domestic incentives
-  const domesticIncentive = domestic * 100;
+  // Calculate domestic incentives - fixed 100 Rs per joining
+  const domesticRate = 100;
+  const domesticIncentive = domestic * domesticRate;
 
   // Calculate international incentives based on tiers
   let internationalRatePerJoining = 0;
@@ -60,7 +63,7 @@ const calculateIncentives = (counts) => {
     international: internationalIncentive,
     total: totalIncentive,
     eligible: true,
-    domesticRate: 100,
+    domesticRate: domesticRate,
     internationalRate: internationalRatePerJoining,
     message: "Eligible for incentives.",
   };

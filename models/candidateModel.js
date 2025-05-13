@@ -35,18 +35,6 @@ const CandidateSchema = new mongoose.Schema(
         employee: { type: mongoose.Schema.Types.ObjectId, ref: "Employee" },
       },
     ],
-    status: {
-      type: String,
-      default: "New",
-      enum: [
-        "New",
-        "Contacted",
-        "Interview Scheduled",
-        "Selected",
-        "Rejected",
-        "On Hold",
-      ],
-    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Employee",

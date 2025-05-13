@@ -1,5 +1,7 @@
 const Employee = require("../models/employeeModel");
 const Activity = require("../models/activityModel");
+const Leave = require("../models/leaveModel");
+const Attendance = require("../models/attendanceModel");
 const bcrypt = require("bcryptjs");
 const { cleanupAttemptKeys } = require("../utils/attemptKeyCleanup");
 const { formatAndValidateEmail } = require("../utils/validators/formatEmail");
@@ -177,28 +179,56 @@ exports.loginEmployee = handleAsync(async (req, res) => {
   // Generate JWT token
   const token = signInToken(user, "7d");
 
-  // Check current activity status
-  let currentActivity = await Activity.findOne({
-    employeeId: user._id,
-    createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-    isActive: true,
+  // Close only "On Desk" active activities
+  await Activity.updateMany(
+    { employeeId: user._id, type: "On Desk", endTime: null },
+    { endTime: new Date() }
+  );
+
+  // Set today's date to start of day for accurate comparison
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  // Check if the employee has an approved leave that covers today
+  const leave = await Leave.findOne({
+    employee: user._id,
+    startDate: { $lte: today },
+    endDate: { $gte: today },
+    status: "Approved",
   });
 
-  console.log(currentActivity);
+  // Check if attendance already marked for today
+  let attendanceRecord = await Attendance.findOne({
+    employee: user._id,
+    date: {
+      $gte: today,
+      $lt: tomorrow,
+    },
+  });
 
-  let shouldBlock = false;
+  // If no attendance record for today, create one
+  if (!attendanceRecord) {
+    attendanceRecord = new Attendance({
+      employee: user._id,
+      date: today,
+      present: !leave, // If on leave, not present
+      leaveId: leave ? leave._id : null,
+    });
+    await attendanceRecord.save();
+  }
 
-  if (!currentActivity) {
-    // No active activity, create default "On Desk"
+  // Create a new "On Desk" activity only if not on approved leave
+  let currentActivity = null;
+  if (!leave) {
     currentActivity = new Activity({
       employeeId: user._id,
       type: "On Desk",
       startTime: new Date(),
     });
     await currentActivity.save();
-  } else {
-    // Check if current activity should block UI
-    shouldBlock = currentActivity.type !== "On Desk";
   }
 
   // Cleanup login attempt tracking
@@ -216,9 +246,19 @@ exports.loginEmployee = handleAsync(async (req, res) => {
     role: user.role,
     data,
     iv,
+    attendance: {
+      present: attendanceRecord.present,
+      date: attendanceRecord.date,
+      leaveDetails: leave
+        ? {
+            type: leave.leaveType,
+            reason: leave.leaveReason,
+          }
+        : null,
+    },
     activity: {
       currentActivity,
-      shouldBlock,
+      shouldBlock: false,
     },
   });
 });
