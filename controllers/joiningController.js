@@ -9,6 +9,10 @@ const {
 } = require("../utils/incentiveCalculator");
 const Candidate = require("../models/candidateModel");
 const Lineup = require("../models/lineupModel");
+const {
+  checkCandidateLock,
+  lockCandidate,
+} = require("../utils/candidateLockManager");
 
 /**
  * Updates incentives for a joining
@@ -26,27 +30,36 @@ const updateJoiningIncentives = async (joining, isNew = false) => {
       status: "Joining Details Received",
     });
 
-    // Count international and domestic joinings
+    // Count international, domestic, and mid-lateral joinings
     const internationalCount = allJoinings.filter(
       (j) => j.joiningType === "International"
     ).length;
     const domesticCount = allJoinings.filter(
       (j) => j.joiningType === "Domestic"
     ).length;
+    const midLateralCount = allJoinings.filter(
+      (j) => j.joiningType === "Mid-Lateral"
+    ).length;
 
     // Calculate incentives
     const incentiveResult = calculateIncentives({
       domestic: domesticCount,
       international: internationalCount,
+      midLateral: midLateralCount,
     });
 
     // Determine incentive amount for this specific joining
     let joiningIncentiveAmount = 0;
     if (incentiveResult.eligible) {
-      const ratePerJoining =
-        joining.joiningType === "International"
-          ? incentiveResult.internationalRate
-          : incentiveResult.domesticRate;
+      let ratePerJoining = 0;
+      if (joining.joiningType === "International") {
+        ratePerJoining = incentiveResult.internationalRate;
+      } else if (joining.joiningType === "Domestic") {
+        ratePerJoining = incentiveResult.domesticRate;
+      } else if (joining.joiningType === "Mid-Lateral") {
+        ratePerJoining = incentiveResult.midLateralRate;
+      }
+
       joiningIncentiveAmount = ratePerJoining;
     }
 
@@ -107,10 +120,11 @@ const createJoining = handleAsync(async (req, res) => {
   }
 
   // Validate joiningType
-  if (!["International", "Domestic"].includes(joiningType)) {
+  if (!["International", "Domestic", "Mid-Lateral"].includes(joiningType)) {
     return res.status(400).json({
       success: false,
-      message: "Joining type must be either 'International' or 'Domestic'",
+      message:
+        "Joining type must be either 'International', 'Domestic', or 'Mid-Lateral'",
     });
   }
 
@@ -122,6 +136,26 @@ const createJoining = handleAsync(async (req, res) => {
       message:
         "No candidate found with this contact number. Please register the candidate first.",
     });
+  }
+
+  // Check if candidate is locked by a different employee
+  const lockStatus = await checkCandidateLock(contactNumber);
+
+  if (lockStatus && lockStatus.isLocked) {
+    // If candidate is locked by a different employee, prevent joining creation
+    if (
+      lockStatus.lockedBy &&
+      lockStatus.lockedBy._id.toString() !== req.employee._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "This candidate is locked by another employee",
+        lockedBy: lockStatus.lockedBy.name?.en || "Unknown",
+        remainingDays: lockStatus.remainingDays,
+        remainingTime: lockStatus.remainingTime,
+        lockExpiryDate: lockStatus.lockExpiryDate,
+      });
+    }
   }
 
   // Check if lineup exists with this contact number
@@ -150,6 +184,31 @@ const createJoining = handleAsync(async (req, res) => {
     remarks,
     createdBy: req.employee._id,
   });
+
+  // Lock the candidate for 90 days for the current employee or for the employee who created the lineup
+  // This ensures the employee who lined up the candidate gets the lock for 90 days
+  const lineupEmployeeId = lineup.createdBy;
+  await lockCandidate(contactNumber, lineupEmployeeId, "joining");
+
+  // Update candidate with joining status
+  await Candidate.findOneAndUpdate(
+    { mobileNo: contactNumber },
+    {
+      $push: {
+        callStatusHistory: {
+          status: "Joined",
+          date: Date.now(),
+          employee: req.employee._id,
+        },
+        remarks: {
+          remark: remarks,
+          date: Date.now(),
+          employee: req.employee._id,
+        },
+      },
+      callStatus: "Joined",
+    }
+  );
 
   // Update incentives
   joining = await updateJoiningIncentives(joining, true);
@@ -191,27 +250,36 @@ const getAllJoinings = handleAsync(async (req, res) => {
     isEligibleStatus(joining.status)
   );
 
-  // Count international and domestic joinings
+  // Count international, domestic, and mid-lateral joinings
   const internationalCount = eligibleJoinings.filter(
     (j) => j.joiningType === "International"
   ).length;
   const domesticCount = eligibleJoinings.filter(
     (j) => j.joiningType === "Domestic"
   ).length;
+  const midLateralCount = eligibleJoinings.filter(
+    (j) => j.joiningType === "Mid-Lateral"
+  ).length;
 
   // Calculate incentives
   const incentiveResult = calculateIncentives({
     domestic: domesticCount,
     international: internationalCount,
+    midLateral: midLateralCount,
   });
 
   // Update incentives for all joinings
   const updatePromises = joinings.map(async (joining) => {
     if (isEligibleStatus(joining.status) && incentiveResult.eligible) {
-      const ratePerJoining =
-        joining.joiningType === "International"
-          ? incentiveResult.internationalRate
-          : incentiveResult.domesticRate;
+      let ratePerJoining = 0;
+
+      if (joining.joiningType === "International") {
+        ratePerJoining = incentiveResult.internationalRate;
+      } else if (joining.joiningType === "Domestic") {
+        ratePerJoining = incentiveResult.domesticRate;
+      } else if (joining.joiningType === "Mid-Lateral") {
+        ratePerJoining = incentiveResult.midLateralRate;
+      }
 
       joining.incentives = {
         eligible: true,
@@ -242,7 +310,8 @@ const getAllJoinings = handleAsync(async (req, res) => {
       counts: {
         international: internationalCount,
         domestic: domesticCount,
-        total: internationalCount + domesticCount,
+        midLateral: midLateralCount,
+        total: internationalCount + domesticCount + midLateralCount,
       },
       incentives: incentiveResult,
     },
@@ -290,34 +359,91 @@ const updateJoining = handleAsync(async (req, res) => {
     });
   }
 
-  // Validate joiningType if provided
-  if (
-    updateData.joiningType &&
-    !["International", "Domestic"].includes(updateData.joiningType)
-  ) {
-    return res.status(400).json({
-      success: false,
-      message: "Joining type must be either 'International' or 'Domestic'",
-    });
-  }
-
-  const joining = await Joining.findByIdAndUpdate(joiningId, updateData, {
-    new: true,
-    runValidators: true,
-  }).populate("company", "companyName");
-
-  if (!joining) {
+  // Get the existing joining
+  const existingJoining = await Joining.findById(joiningId);
+  if (!existingJoining) {
     return res.status(404).json({
       success: false,
       message: "Joining not found",
     });
   }
 
-  // Update incentives
-  await updateJoiningIncentives(joining);
+  // Check if the candidate is locked by someone else
+  const lockStatus = await checkCandidateLock(existingJoining.contactNumber);
+  if (
+    lockStatus &&
+    lockStatus.isLocked &&
+    lockStatus.lockedBy &&
+    lockStatus.lockedBy._id.toString() !== req.employee._id.toString() &&
+    existingJoining.createdBy.toString() !== lockStatus.lockedBy._id.toString()
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "This candidate is locked by another employee",
+      lockedBy: lockStatus.lockedBy.name?.en || "Unknown",
+      remainingDays: lockStatus.remainingDays,
+      remainingTime: lockStatus.remainingTime,
+      lockExpiryDate: lockStatus.lockExpiryDate,
+    });
+  }
 
-  // Emit WebSocket event for joining update
-  emitFeedUpdate(joiningId, {
+  // Update the joining
+  let joining = await Joining.findByIdAndUpdate(joiningId, updateData, {
+    new: true,
+    runValidators: true,
+  });
+
+  // Check if status is updated to "Joining Details Received"
+  if (
+    updateData.status &&
+    updateData.status === "Joining Details Received" &&
+    existingJoining.status !== "Joining Details Received"
+  ) {
+    // Ensure the candidate is locked for 90 days to the employee who created the lineup
+    // Find the related lineup
+    const lineup = await Lineup.findOne({
+      contactNumber: joining.contactNumber,
+      company: joining.company,
+      process: joining.process,
+    });
+
+    if (lineup) {
+      // Lock the candidate for the employee who created the lineup
+      await lockCandidate(joining.contactNumber, lineup.createdBy, "joining");
+    } else {
+      // If no lineup found, lock for the current employee
+      await lockCandidate(joining.contactNumber, req.employee._id, "joining");
+    }
+
+    // Update candidate status
+    const candidate = await Candidate.findOne({
+      mobileNo: joining.contactNumber,
+    });
+    if (candidate) {
+      await Candidate.findByIdAndUpdate(candidate._id, {
+        callStatus: "Joined",
+        $push: {
+          callStatusHistory: {
+            status: "Joined",
+            date: Date.now(),
+            employee: req.employee._id,
+          },
+          remarks: {
+            remark: `Joining status updated to ${updateData.status}`,
+            date: Date.now(),
+            employee: req.employee._id,
+          },
+        },
+      });
+    }
+  }
+
+  // Update incentives
+  joining = await updateJoiningIncentives(joining);
+
+  // Emit feed update
+  emitFeedUpdate({
+    id: joining._id,
     status: joining.status,
     timestamp: new Date().toLocaleTimeString("en-US", {
       hour: "2-digit",
@@ -400,27 +526,35 @@ const calculateEmployeeIncentives = handleAsync(async (req, res) => {
     ...dateFilter,
   });
 
-  // Count international and domestic joinings
+  // Count international, domestic, and mid-lateral joinings
   const internationalCount = joinings.filter(
     (j) => j.joiningType === "International"
   ).length;
   const domesticCount = joinings.filter(
     (j) => j.joiningType === "Domestic"
   ).length;
+  const midLateralCount = joinings.filter(
+    (j) => j.joiningType === "Mid-Lateral"
+  ).length;
 
   // Calculate incentives
   const incentiveResult = calculateIncentives({
     domestic: domesticCount,
     international: internationalCount,
+    midLateral: midLateralCount,
   });
 
   // Update incentives for all eligible joinings
   if (incentiveResult.eligible) {
     const updatePromises = joinings.map(async (joining) => {
-      const ratePerJoining =
-        joining.joiningType === "International"
-          ? incentiveResult.internationalRate
-          : incentiveResult.domesticRate;
+      let ratePerJoining = 0;
+      if (joining.joiningType === "International") {
+        ratePerJoining = incentiveResult.internationalRate;
+      } else if (joining.joiningType === "Domestic") {
+        ratePerJoining = incentiveResult.domesticRate;
+      } else if (joining.joiningType === "Mid-Lateral") {
+        ratePerJoining = incentiveResult.midLateralRate;
+      }
 
       joining.incentives = {
         eligible: true,
@@ -454,7 +588,8 @@ const calculateEmployeeIncentives = handleAsync(async (req, res) => {
       counts: {
         international: internationalCount,
         domestic: domesticCount,
-        total: internationalCount + domesticCount,
+        midLateral: midLateralCount,
+        total: internationalCount + domesticCount + midLateralCount,
       },
       incentives: incentiveResult,
       period: {
@@ -485,20 +620,28 @@ const recalculateAllIncentives = handleAsync(async (req, res) => {
   const domesticCount = eligibleJoinings.filter(
     (j) => j.joiningType === "Domestic"
   ).length;
+  const midLateralCount = eligibleJoinings.filter(
+    (j) => j.joiningType === "Mid-Lateral"
+  ).length;
 
   // Calculate incentives based on all eligible joinings
   const incentiveResult = calculateIncentives({
     domestic: domesticCount,
     international: internationalCount,
+    midLateral: midLateralCount,
   });
 
   // Update all joinings with appropriate incentive data
   const updatePromises = allJoinings.map(async (joining) => {
     if (isEligibleStatus(joining.status) && incentiveResult.eligible) {
-      const ratePerJoining =
-        joining.joiningType === "International"
-          ? incentiveResult.internationalRate
-          : incentiveResult.domesticRate;
+      let ratePerJoining = 0;
+      if (joining.joiningType === "International") {
+        ratePerJoining = incentiveResult.internationalRate;
+      } else if (joining.joiningType === "Domestic") {
+        ratePerJoining = incentiveResult.domesticRate;
+      } else if (joining.joiningType === "Mid-Lateral") {
+        ratePerJoining = incentiveResult.midLateralRate;
+      }
 
       joining.incentives = {
         eligible: true,
@@ -525,7 +668,8 @@ const recalculateAllIncentives = handleAsync(async (req, res) => {
       counts: {
         international: internationalCount,
         domestic: domesticCount,
-        total: internationalCount + domesticCount,
+        midLateral: midLateralCount,
+        total: internationalCount + domesticCount + midLateralCount,
         totalJoinings: allJoinings.length,
       },
       incentives: incentiveResult,

@@ -20,7 +20,7 @@ const JoiningSchema = new mongoose.Schema(
     },
     joiningType: {
       type: String,
-      enum: ["International", "Domestic"],
+      enum: ["International", "Domestic", "Mid-Lateral"],
       required: true,
     },
     salary: {

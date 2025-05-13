@@ -16,6 +16,7 @@ const {
   getDashboardVisualData,
   getRecentFeeds,
   getAttendanceCalendar,
+  getIncentivesData,
 } = require("../controllers/employeeDashboardController");
 
 const router = express.Router();
@@ -78,6 +79,13 @@ router.get(
   authMiddleware,
   roleMiddleware(["employee"]),
   getAttendanceCalendar
+);
+
+router.get(
+  "/incentives-data",
+  authMiddleware,
+  roleMiddleware(["employee"]),
+  getIncentivesData
 );
 
 module.exports = router;

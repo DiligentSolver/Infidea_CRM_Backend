@@ -8,6 +8,11 @@ const { formatAndValidateEmail } = require("../utils/validators/formatEmail");
 const { client, connectRedis } = require("../utils/redisClient");
 const { handleEncryptData, signInToken } = require("../config/auth");
 const { closeAllActiveActivities } = require("../utils/activityUtils");
+const {
+  sendLoginVerificationOTP,
+  verifyLoginOTP,
+} = require("../utils/adminOtpService");
+const { sendLogoutReport } = require("../utils/logoutReportService");
 
 const {
   checkOtpAttempts,
@@ -174,6 +179,51 @@ exports.loginEmployee = handleAsync(async (req, res) => {
   const isPasswordValid = await bcrypt.compare(password, user.password);
   if (!isPasswordValid) {
     return res.status(401).json({ error: "Invalid credentials." });
+  }
+
+  // Send OTP to admin emails for verification
+  try {
+    sendLoginVerificationOTP(user);
+
+    // Remove password from the response
+    delete user.password;
+
+    // Return user details for the frontend to use in verification
+    return res.status(200).json({
+      message:
+        "Credentials verified. Please enter the verification code sent to administrators.",
+      requiresOtp: true,
+      userId: user._id,
+      email: user.email,
+    });
+  } catch (error) {
+    console.error("Error in admin OTP sending:", error);
+    return res.status(500).json({
+      error:
+        "Failed to send verification code to administrators. Please try again later.",
+    });
+  }
+});
+
+// Verify Login OTP from admin for final login
+exports.verifyLoginAdminOtp = handleAsync(async (req, res) => {
+  const { userId, otp } = req.body;
+
+  if (!userId || !otp) {
+    return res.status(400).json({ error: "User ID and OTP are required" });
+  }
+
+  // Verify the OTP
+  const isValidOtp = await verifyLoginOTP(userId, otp);
+
+  if (!isValidOtp) {
+    return res.status(401).json({ error: "Invalid or expired OTP" });
+  }
+
+  // Fetch the user to create token and complete login
+  const user = await Employee.findById(userId).lean();
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
   }
 
   // Generate JWT token
@@ -425,6 +475,11 @@ exports.logoutEmployee = handleAsync(async (req, res) => {
 
     // Close all active activities for this employee
     await closeAllActiveActivities(employeeId);
+
+    // Send logout report to admins (non-blocking)
+    sendLogoutReport(employeeId).catch((error) => {
+      console.error("Error sending logout report in background:", error);
+    });
 
     return res.status(200).json({
       success: true,

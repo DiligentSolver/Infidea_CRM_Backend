@@ -461,11 +461,95 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
     // Start of year
     const startOfYear = new Date(today.getFullYear(), 0, 1);
 
-    // Calculate today's time spent
-    let todayTimeSpent = await calculateTodayTime(employeeId, today, tomorrow);
-    if (!todayTimeSpent || typeof todayTimeSpent !== "string") {
-      todayTimeSpent = "0h 0m";
-    }
+    // Previous periods for trend calculations
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dayBeforeYesterday = new Date(yesterday);
+    dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 1);
+
+    const previousWeekStart = new Date(startOfWeek);
+    previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+    const previousWeekEnd = new Date(startOfWeek);
+    previousWeekEnd.setDate(previousWeekEnd.getDate() - 1);
+
+    const previousMonthStart = new Date(
+      today.getFullYear(),
+      today.getMonth() - 1,
+      1
+    );
+    const previousMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+
+    // Calculate time spent for different time periods
+    const todayTimeSpent = await calculateTodayTime(
+      employeeId,
+      today,
+      tomorrow
+    );
+
+    // Helper function to calculate time spent for a specific time range
+    const calculateTimeSpentForRange = async (startDate, endDate) => {
+      try {
+        const candidates = await Candidate.find({
+          $or: [
+            { lastRegisteredBy: employeeId },
+            { createdBy: employeeId },
+            {
+              registrationHistory: { $elemMatch: { registeredBy: employeeId } },
+            },
+          ],
+        }).populate({
+          path: "callDurationHistory",
+          select: "duration employee date",
+        });
+
+        if (!candidates || candidates.length === 0) {
+          return "0h";
+        }
+
+        let totalMinutes = 0;
+
+        candidates.forEach((candidate) => {
+          if (
+            candidate.callDurationHistory &&
+            candidate.callDurationHistory.length > 0
+          ) {
+            candidate.callDurationHistory.forEach((record) => {
+              if (
+                record.employee &&
+                record.employee.toString() === employeeId.toString() &&
+                record.date &&
+                record.date >= startDate &&
+                record.date < endDate &&
+                record.duration
+              ) {
+                const durationMinutes = parseInt(record.duration) || 0;
+                totalMinutes += durationMinutes;
+              }
+            });
+          }
+        });
+
+        return formatTimeString(totalMinutes);
+      } catch (error) {
+        console.error(`Error calculating time spent for range:`, error);
+        return "0h";
+      }
+    };
+
+    // Calculate time spent for week, month, and year
+    const weekTimeSpent = await calculateTimeSpentForRange(
+      startOfWeek,
+      tomorrow
+    );
+    const monthTimeSpent = await calculateTimeSpentForRange(
+      startOfMonth,
+      tomorrow
+    );
+    const yearTimeSpent = await calculateTimeSpentForRange(
+      startOfYear,
+      tomorrow
+    );
+    const allTimeSpent = await calculateTotalTime(employeeId);
 
     // Define queries for different time ranges
     const dataQueries = {
@@ -529,6 +613,46 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
         ],
       }).lean(),
 
+      // Yesterday's data for trend calculation
+      yesterdayLineups: Lineup.find({
+        createdBy: employeeId,
+        createdAt: { $gte: yesterday, $lt: today },
+      }).lean(),
+
+      yesterdaySelections: Lineup.find({
+        createdBy: employeeId,
+        status: "Selected",
+        createdAt: { $gte: yesterday, $lt: today },
+      }).lean(),
+
+      yesterdayJoinings: Joining.find({
+        createdBy: employeeId,
+        createdAt: { $gte: yesterday, $lt: today },
+      }).lean(),
+
+      yesterdayCalls: Candidate.find({
+        $or: [
+          {
+            lastRegisteredBy: employeeId,
+            updatedAt: { $gte: yesterday, $lt: today },
+          },
+          {
+            registrationHistory: {
+              $elemMatch: {
+                registrationDate: { $gte: yesterday, $lt: today },
+                registeredBy: employeeId,
+              },
+            },
+          },
+        ],
+        callDurationHistory: {
+          $elemMatch: {
+            duration: { $gt: 0 },
+            employee: employeeId,
+          },
+        },
+      }).lean(),
+
       // Week data
       weekLineups: Lineup.find({
         createdBy: employeeId,
@@ -569,6 +693,46 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
         },
       }).lean(),
 
+      // Previous week data for trend calculation
+      previousWeekLineups: Lineup.find({
+        createdBy: employeeId,
+        createdAt: { $gte: previousWeekStart, $lt: startOfWeek },
+      }).lean(),
+
+      previousWeekSelections: Lineup.find({
+        createdBy: employeeId,
+        status: "Selected",
+        createdAt: { $gte: previousWeekStart, $lt: startOfWeek },
+      }).lean(),
+
+      previousWeekJoinings: Joining.find({
+        createdBy: employeeId,
+        createdAt: { $gte: previousWeekStart, $lt: startOfWeek },
+      }).lean(),
+
+      previousWeekCalls: Candidate.find({
+        $or: [
+          {
+            lastRegisteredBy: employeeId,
+            updatedAt: { $gte: previousWeekStart, $lt: startOfWeek },
+          },
+          {
+            registrationHistory: {
+              $elemMatch: {
+                registrationDate: { $gte: previousWeekStart, $lt: startOfWeek },
+                registeredBy: employeeId,
+              },
+            },
+          },
+        ],
+        callDurationHistory: {
+          $elemMatch: {
+            duration: { $gt: 0 },
+            employee: employeeId,
+          },
+        },
+      }).lean(),
+
       // Month data
       monthLineups: Lineup.find({
         createdBy: employeeId,
@@ -596,6 +760,49 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
             registrationHistory: {
               $elemMatch: {
                 registrationDate: { $gte: startOfMonth, $lt: tomorrow },
+                registeredBy: employeeId,
+              },
+            },
+          },
+        ],
+        callDurationHistory: {
+          $elemMatch: {
+            duration: { $gt: 0 },
+            employee: employeeId,
+          },
+        },
+      }).lean(),
+
+      // Previous month data for trend calculation
+      previousMonthLineups: Lineup.find({
+        createdBy: employeeId,
+        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+      }).lean(),
+
+      previousMonthSelections: Lineup.find({
+        createdBy: employeeId,
+        status: "Selected",
+        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+      }).lean(),
+
+      previousMonthJoinings: Joining.find({
+        createdBy: employeeId,
+        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+      }).lean(),
+
+      previousMonthCalls: Candidate.find({
+        $or: [
+          {
+            lastRegisteredBy: employeeId,
+            updatedAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+          },
+          {
+            registrationHistory: {
+              $elemMatch: {
+                registrationDate: {
+                  $gte: previousMonthStart,
+                  $lt: previousMonthEnd,
+                },
                 registeredBy: employeeId,
               },
             },
@@ -672,14 +879,26 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
       todaySelections,
       todayJoinings,
       todayCalls,
+      yesterdayLineups,
+      yesterdaySelections,
+      yesterdayJoinings,
+      yesterdayCalls,
       weekLineups,
       weekSelections,
       weekJoinings,
       weekCalls,
+      previousWeekLineups,
+      previousWeekSelections,
+      previousWeekJoinings,
+      previousWeekCalls,
       monthLineups,
       monthSelections,
       monthJoinings,
       monthCalls,
+      previousMonthLineups,
+      previousMonthSelections,
+      previousMonthJoinings,
+      previousMonthCalls,
       yearLineups,
       yearSelections,
       yearJoinings,
@@ -696,6 +915,7 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
         selections: 0,
         joinings: 0,
         calls: 0,
+        timeSpent: "0h", // Initialize time spent for each hour
         label: `${index % 12 === 0 ? 12 : index % 12}${
           index < 12 ? "am" : "pm"
         }`, // Format as 12am, 1am, ..., 11pm
@@ -722,6 +942,50 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
       hourlyDistribution[hour].calls += 1;
     });
 
+    // Add time spent data to hourly distribution
+    for (const candidate of todayCalls) {
+      if (
+        candidate.callDurationHistory &&
+        candidate.callDurationHistory.length > 0
+      ) {
+        candidate.callDurationHistory.forEach((record) => {
+          if (
+            record.employee &&
+            record.employee.toString() === employeeId.toString() &&
+            record.date &&
+            record.date >= today &&
+            record.date < tomorrow &&
+            record.duration
+          ) {
+            const hour = new Date(record.date).getHours();
+            const durationMinutes = parseInt(record.duration) || 0;
+
+            // Update time spent for this hour
+            const currentMinutes =
+              hourlyDistribution[hour].timeSpent === "0h"
+                ? 0
+                : hourlyDistribution[hour].timeSpent.includes("h") &&
+                  hourlyDistribution[hour].timeSpent.includes("m")
+                ? parseInt(hourlyDistribution[hour].timeSpent.split("h")[0]) *
+                    60 +
+                  parseInt(
+                    hourlyDistribution[hour].timeSpent
+                      .split("h")[1]
+                      .split("m")[0]
+                  )
+                : hourlyDistribution[hour].timeSpent.includes("h")
+                ? parseInt(hourlyDistribution[hour].timeSpent.split("h")[0]) *
+                  60
+                : parseInt(hourlyDistribution[hour].timeSpent.split("m")[0]);
+
+            hourlyDistribution[hour].timeSpent = formatTimeString(
+              currentMinutes + durationMinutes
+            );
+          }
+        });
+      }
+    }
+
     // Create daily distribution for last 7 days
     const dailyDistribution = [];
     for (let i = 6; i >= 0; i--) {
@@ -746,13 +1010,14 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
         selections: 0,
         joinings: 0,
         calls: 0,
+        timeSpent: "0h", // Initialize time spent for each day
       });
     }
 
     // Populate daily distribution
     weekLineups.forEach((lineup) => {
       const createdAt = new Date(lineup.createdAt);
-      dailyDistribution.forEach((day) => {
+      dailyDistribution.forEach((day, index) => {
         const dayEnd = new Date(day.date);
         dayEnd.setHours(23, 59, 59, 999);
         if (createdAt >= day.date && createdAt <= dayEnd) {
@@ -763,7 +1028,7 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
 
     weekSelections.forEach((selection) => {
       const createdAt = new Date(selection.createdAt);
-      dailyDistribution.forEach((day) => {
+      dailyDistribution.forEach((day, index) => {
         const dayEnd = new Date(day.date);
         dayEnd.setHours(23, 59, 59, 999);
         if (createdAt >= day.date && createdAt <= dayEnd) {
@@ -774,7 +1039,7 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
 
     weekJoinings.forEach((joining) => {
       const createdAt = new Date(joining.createdAt);
-      dailyDistribution.forEach((day) => {
+      dailyDistribution.forEach((day, index) => {
         const dayEnd = new Date(day.date);
         dayEnd.setHours(23, 59, 59, 999);
         if (createdAt >= day.date && createdAt <= dayEnd) {
@@ -785,7 +1050,7 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
 
     weekCalls.forEach((call) => {
       const updatedAt = new Date(call.updatedAt);
-      dailyDistribution.forEach((day) => {
+      dailyDistribution.forEach((day, index) => {
         const dayEnd = new Date(day.date);
         dayEnd.setHours(23, 59, 59, 999);
         if (updatedAt >= day.date && updatedAt <= dayEnd) {
@@ -793,6 +1058,18 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
         }
       });
     });
+
+    // Calculate time spent for each day in the daily distribution
+    for (let dayIndex = 0; dayIndex < dailyDistribution.length; dayIndex++) {
+      const day = dailyDistribution[dayIndex];
+      const dayStart = new Date(day.date);
+      const dayEnd = new Date(day.date);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      // Calculate time spent for this day
+      const dayTimeSpent = await calculateTimeSpentForRange(dayStart, dayEnd);
+      dailyDistribution[dayIndex].timeSpent = dayTimeSpent;
+    }
 
     // Create monthly distribution (last 12 months)
     const monthlyDistribution = [];
@@ -809,6 +1086,7 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
         selections: 0,
         joinings: 0,
         calls: 0,
+        timeSpent: "0h", // Initialize time spent for each month
       });
     }
 
@@ -861,6 +1139,32 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
       });
     });
 
+    // Calculate time spent for each month in the monthly distribution
+    for (
+      let monthIndex = 0;
+      monthIndex < monthlyDistribution.length;
+      monthIndex++
+    ) {
+      const monthData = monthlyDistribution[monthIndex];
+      const monthStart = new Date(monthData.year, monthData.month, 1);
+      const monthEnd = new Date(
+        monthData.year,
+        monthData.month + 1,
+        0,
+        23,
+        59,
+        59,
+        999
+      );
+
+      // Calculate time spent for this month
+      const monthTimeSpent = await calculateTimeSpentForRange(
+        monthStart,
+        monthEnd
+      );
+      monthlyDistribution[monthIndex].timeSpent = monthTimeSpent;
+    }
+
     // Get employee's performance metrics for today
     const employeeLineups = todayLineups.filter(
       (lineup) => lineup.createdBy?._id.toString() === employeeId.toString()
@@ -876,6 +1180,53 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
     ).length;
 
     const employeeCalls = todayCalls.length;
+
+    // Calculate trend data (percentage change compared to previous period)
+    const calculateTrend = (current, previous) => {
+      if (previous === 0) {
+        return current > 0 ? 100 : 0; // If previous was 0, show 100% increase if current > 0
+      }
+      return (((current - previous) / previous) * 100).toFixed(1);
+    };
+
+    // Calculate daily trends (today vs yesterday)
+    const dailyTrends = {
+      lineups: calculateTrend(employeeLineups, yesterdayLineups.length),
+      selections: calculateTrend(
+        employeeSelections,
+        yesterdaySelections.length
+      ),
+      joinings: calculateTrend(employeeJoinings, yesterdayJoinings.length),
+      calls: calculateTrend(employeeCalls, yesterdayCalls.length),
+    };
+
+    // Calculate weekly trends (current week vs previous week)
+    const weeklyTrends = {
+      lineups: calculateTrend(weekLineups.length, previousWeekLineups.length),
+      selections: calculateTrend(
+        weekSelections.length,
+        previousWeekSelections.length
+      ),
+      joinings: calculateTrend(
+        weekJoinings.length,
+        previousWeekJoinings.length
+      ),
+      calls: calculateTrend(weekCalls.length, previousWeekCalls.length),
+    };
+
+    // Calculate monthly trends (current month vs previous month)
+    const monthlyTrends = {
+      lineups: calculateTrend(monthLineups.length, previousMonthLineups.length),
+      selections: calculateTrend(
+        monthSelections.length,
+        previousMonthSelections.length
+      ),
+      joinings: calculateTrend(
+        monthJoinings.length,
+        previousMonthJoinings.length
+      ),
+      calls: calculateTrend(monthCalls.length, previousMonthCalls.length),
+    };
 
     const teamSize = allEmployees.length + 1; // +1 for current employee
 
@@ -913,6 +1264,7 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
             teamAverageCalls: teamAverageCalls.toFixed(1),
             conversionRate,
             todayTimeSpent,
+            trends: dailyTrends,
           },
           // Totals for different periods
           totals: {
@@ -921,12 +1273,14 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
               selections: weekSelections.length,
               joinings: weekJoinings.length,
               calls: weekCalls.length,
+              trends: weeklyTrends,
             },
             month: {
               lineups: monthLineups.length,
               selections: monthSelections.length,
               joinings: monthJoinings.length,
               calls: monthCalls.length,
+              trends: monthlyTrends,
             },
             year: {
               lineups: yearLineups.length,
@@ -943,6 +1297,222 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error fetching dashboard visual data",
+    });
+  }
+});
+
+/**
+ * Get incentives data for dashboard visualization
+ * Provides incentive metrics by day, week, month, year and process
+ */
+const getIncentivesData = handleAsync(async (req, res) => {
+  const employeeId = req.employee._id;
+
+  try {
+    // Calculate time ranges
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Start of week (Sunday)
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay());
+
+    // Start of month
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    // Start of year
+    const startOfYear = new Date(today.getFullYear(), 0, 1);
+
+    // Get all incentive-related data in a single query
+    const allIncentives = await Joining.find({
+      createdBy: employeeId,
+      "incentives.eligible": true,
+      "incentives.calculated": true,
+    })
+      .populate("company", "name")
+      .lean();
+
+    // Calculate total incentives and counts
+    const totalIncentives = allIncentives.reduce(
+      (sum, item) => sum + (item.incentives?.amount || 0),
+      0
+    );
+
+    const todayIncentives = allIncentives
+      .filter(
+        (item) =>
+          new Date(item.createdAt) >= today &&
+          new Date(item.createdAt) < tomorrow
+      )
+      .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
+
+    const weekIncentives = allIncentives
+      .filter(
+        (item) =>
+          new Date(item.createdAt) >= startOfWeek &&
+          new Date(item.createdAt) < tomorrow
+      )
+      .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
+
+    const monthIncentives = allIncentives
+      .filter(
+        (item) =>
+          new Date(item.createdAt) >= startOfMonth &&
+          new Date(item.createdAt) < tomorrow
+      )
+      .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
+
+    const yearIncentives = allIncentives
+      .filter(
+        (item) =>
+          new Date(item.createdAt) >= startOfYear &&
+          new Date(item.createdAt) < tomorrow
+      )
+      .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
+
+    // Create daily distribution for last 30 days
+    const dailyIncentives = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+
+      const dayStart = new Date(date);
+      dayStart.setHours(0, 0, 0, 0);
+
+      const dayEnd = new Date(date);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      const dateString = date.toISOString().split("T")[0];
+
+      const incentivesForDay = allIncentives
+        .filter(
+          (item) =>
+            new Date(item.createdAt) >= dayStart &&
+            new Date(item.createdAt) <= dayEnd
+        )
+        .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
+
+      dailyIncentives.push({
+        date: dateString,
+        amount: incentivesForDay,
+        count: allIncentives.filter(
+          (item) =>
+            new Date(item.createdAt) >= dayStart &&
+            new Date(item.createdAt) <= dayEnd
+        ).length,
+      });
+    }
+
+    // Create monthly distribution (last 12 months)
+    const monthlyIncentives = [];
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const monthEnd = new Date(
+        date.getFullYear(),
+        date.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999
+      );
+
+      const monthName = date.toLocaleString("default", { month: "short" });
+      const year = date.getFullYear();
+
+      const incentivesForMonth = allIncentives
+        .filter(
+          (item) =>
+            new Date(item.createdAt) >= date &&
+            new Date(item.createdAt) <= monthEnd
+        )
+        .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
+
+      monthlyIncentives.push({
+        month: date.getMonth(),
+        year: year,
+        monthLabel: `${monthName} ${year}`,
+        amount: incentivesForMonth,
+        count: allIncentives.filter(
+          (item) =>
+            new Date(item.createdAt) >= date &&
+            new Date(item.createdAt) <= monthEnd
+        ).length,
+      });
+    }
+
+    // Create process-wise distribution
+    const processCounts = {};
+    const processAmounts = {};
+
+    allIncentives.forEach((item) => {
+      if (item.process) {
+        if (!processCounts[item.process]) {
+          processCounts[item.process] = 0;
+          processAmounts[item.process] = 0;
+        }
+        processCounts[item.process]++;
+        processAmounts[item.process] += item.incentives?.amount || 0;
+      }
+    });
+
+    const processDistribution = Object.keys(processCounts)
+      .map((process) => ({
+        process,
+        count: processCounts[process],
+        amount: processAmounts[process],
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    // Create company-wise distribution
+    const companyCounts = {};
+    const companyAmounts = {};
+
+    allIncentives.forEach((item) => {
+      const companyName = item.company || "Unknown";
+      if (!companyCounts[companyName]) {
+        companyCounts[companyName] = 0;
+        companyAmounts[companyName] = 0;
+      }
+      companyCounts[companyName]++;
+      companyAmounts[companyName] += item.incentives?.amount || 0;
+    });
+
+    const companyDistribution = Object.keys(companyCounts)
+      .map((company) => ({
+        company,
+        count: companyCounts[company],
+        amount: companyAmounts[company],
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        summary: {
+          total: totalIncentives,
+          today: todayIncentives,
+          week: weekIncentives,
+          month: monthIncentives,
+          year: yearIncentives,
+          count: allIncentives.length,
+        },
+        distributions: {
+          daily: dailyIncentives,
+          monthly: monthlyIncentives,
+          byProcess: processDistribution,
+          byCompany: companyDistribution,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error in getIncentivesData:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching incentives data",
+      error: error.message,
     });
   }
 });
@@ -1317,4 +1887,5 @@ module.exports = {
   getDashboardVisualData,
   getRecentFeeds,
   getAttendanceCalendar,
+  getIncentivesData,
 };

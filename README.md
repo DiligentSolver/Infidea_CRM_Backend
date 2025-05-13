@@ -50,3 +50,25 @@ The attendance system leverages the existing Leave model rather than creating a 
 1. Checks if there's an approved leave for the current day
 2. If no approved leave exists, marks the employee as present
 3. Updates the attendance calendar with the appropriate status
+
+## Candidate Locking System
+
+The CRM implements a candidate locking system that works as follows:
+
+1. When a candidate is added with a call status of "Lineup" or "Walkin at Infidea", the candidate is locked for the employee who registered them for 30 days.
+2. Similarly, when a lineup or walkin is created manually, the candidate is locked for the employee for 30 days.
+3. When a joining is added, the candidate is locked for the employee who created the lineup for 90 days.
+4. The system checks the locking status before allowing any operations (lineup, walkin, joining).
+5. No entry can be made if a candidate is locked by another employee.
+
+Important: When a candidate is marked by an employee, they are NOT locked, regardless of their status.
+
+### Environment Variables for Locking
+
+Add these variables to your `.env` file to customize the lock durations:
+
+```
+# Candidate Lock Configuration
+LINEUP_LOCK_DAYS=30
+JOINING_LOCK_DAYS=90
+```

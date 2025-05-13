@@ -2,6 +2,10 @@ const Walkin = require("../models/walkinModel");
 const { handleAsync } = require("../utils/attemptAndOtp");
 const mongoose = require("mongoose");
 const Candidate = require("../models/candidateModel");
+const {
+  checkCandidateLock,
+  lockCandidate,
+} = require("../utils/candidateLockManager");
 
 // Create a new walkin
 const createWalkin = handleAsync(async (req, res) => {
@@ -16,6 +20,36 @@ const createWalkin = handleAsync(async (req, res) => {
     });
   }
 
+  // Check if candidate exists with this contact number
+  const candidate = await Candidate.findOne({ mobileNo: contactNumber });
+  if (!candidate) {
+    return res.status(404).json({
+      success: false,
+      message:
+        "No candidate found with this contact number. Please register the candidate first.",
+    });
+  }
+
+  // Check if candidate is locked by a different employee
+  const lockStatus = await checkCandidateLock(contactNumber);
+
+  if (lockStatus && lockStatus.isLocked) {
+    // If candidate is locked by a different employee, prevent walkin creation
+    if (
+      lockStatus.lockedBy &&
+      lockStatus.lockedBy._id.toString() !== req.employee._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "This candidate is locked by another employee",
+        lockedBy: lockStatus.lockedBy.name?.en || "Unknown",
+        remainingDays: lockStatus.remainingDays,
+        remainingTime: lockStatus.remainingTime,
+        lockExpiryDate: lockStatus.lockExpiryDate,
+      });
+    }
+  }
+
   // Create the walkin
   const walkin = await Walkin.create({
     candidateName,
@@ -25,14 +59,31 @@ const createWalkin = handleAsync(async (req, res) => {
     createdBy: req.employee._id,
   });
 
-  // Update candidate's walkinDate if candidate exists and lastRegisteredBy matches
-  const candidate = await Candidate.findOne({ mobileNo: contactNumber });
-  if (
-    candidate &&
-    candidate.lastRegisteredBy &&
-    candidate.lastRegisteredBy.toString() === req.employee._id.toString()
-  ) {
-    await Candidate.findByIdAndUpdate(candidate._id, { walkinDate });
+  // Lock the candidate for 30 days for the current employee
+  await lockCandidate(contactNumber, req.employee._id, "walkin");
+
+  // Update candidate's walkinDate if candidate exists
+  if (candidate) {
+    const remarkHistory = {
+      remark: remarks,
+      date: Date.now(),
+      employee: req.employee._id,
+    };
+
+    // Update callStatus to 'Walkin at Infidea' if not already set
+    await Candidate.findByIdAndUpdate(candidate._id, {
+      walkinDate,
+      callStatus: "Walkin at Infidea",
+      lastRegisteredBy: req.employee._id,
+      $push: {
+        remarks: remarkHistory,
+        callStatusHistory: {
+          status: "Walkin at Infidea",
+          date: Date.now(),
+          employee: req.employee._id,
+        },
+      },
+    });
   }
 
   return res.status(201).json({
@@ -97,35 +148,51 @@ const updateWalkin = handleAsync(async (req, res) => {
     });
   }
 
-  const walkin = await Walkin.findByIdAndUpdate(walkinId, updateData, {
-    new: true,
-    runValidators: true,
-  });
-
-  if (!walkin) {
+  // Get the existing walkin
+  const existingWalkin = await Walkin.findById(walkinId);
+  if (!existingWalkin) {
     return res.status(404).json({
       success: false,
       message: "Walkin not found",
     });
   }
 
-  // Update candidate's walkinDate if candidate exists and lastRegisteredBy matches
-  const candidate = await Candidate.findOne({ mobileNo: walkin.contactNumber });
+  // Check if the candidate is locked by someone else
+  const lockStatus = await checkCandidateLock(existingWalkin.contactNumber);
   if (
-    candidate &&
-    candidate.lastRegisteredBy &&
-    candidate.lastRegisteredBy.toString() === req.employee._id.toString()
+    lockStatus &&
+    lockStatus.isLocked &&
+    lockStatus.lockedBy &&
+    lockStatus.lockedBy._id.toString() !== req.employee._id.toString()
   ) {
-    const remarksHistory = [];
-    remarksHistory.push({
-      remark: walkin.remarks,
-      date: new Date(),
-      employee: req.employee._id,
+    return res.status(403).json({
+      success: false,
+      message: "This candidate is locked by another employee",
+      lockedBy: lockStatus.lockedBy.name?.en || "Unknown",
+      remainingDays: lockStatus.remainingDays,
+      remainingTime: lockStatus.remainingTime,
+      lockExpiryDate: lockStatus.lockExpiryDate,
     });
+  }
+
+  // Update the walkin
+  const walkin = await Walkin.findByIdAndUpdate(walkinId, updateData, {
+    new: true,
+    runValidators: true,
+  });
+
+  // Update candidate's walkinDate and remarks
+  const candidate = await Candidate.findOne({ mobileNo: walkin.contactNumber });
+  if (candidate) {
+    const remarkHistory = {
+      remark: walkin.remarks,
+      date: Date.now(),
+      employee: req.employee._id,
+    };
 
     await Candidate.findByIdAndUpdate(candidate._id, {
-      remarks: remarksHistory,
       walkinDate: walkin.walkinDate,
+      $push: { remarks: remarkHistory },
     });
   }
 

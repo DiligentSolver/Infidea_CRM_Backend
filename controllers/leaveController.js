@@ -120,9 +120,9 @@ exports.getEmployeeLeaves = async (req, res) => {
   try {
     const employeeId = req.employee._id; // Get employee ID from authenticated user
 
-    const leaves = await Leave.find({ employee: employeeId })
-      .sort({ createdAt: -1 })
-      .populate("approver", "name employeeCode");
+    const leaves = await Leave.find({ employee: employeeId }).sort({
+      createdAt: -1,
+    });
 
     res.status(200).json({
       success: true,
@@ -141,10 +141,7 @@ exports.getEmployeeLeaves = async (req, res) => {
 // Get all leaves (for admin)
 exports.getAllLeaves = async (req, res) => {
   try {
-    const leaves = await Leave.find()
-      .sort({ createdAt: -1 })
-      .populate("employee", "name employeeCode email")
-      .populate("approver", "name employeeCode");
+    const leaves = await Leave.find().sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,

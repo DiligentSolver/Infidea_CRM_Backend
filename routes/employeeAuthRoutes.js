@@ -12,6 +12,7 @@ const {
   resendEmployeeVerifyEmailOtp,
   registerEmployee,
   logoutEmployee,
+  verifyLoginAdminOtp,
 } = require("../controllers/employeeAuthController");
 const router = express.Router();
 const { authMiddleware } = require("../middleware/authMiddleware");
@@ -25,8 +26,11 @@ router.post("/verify-otp", verifyEmployeeOtp);
 // Resend OTP route
 router.post("/resend-otp", resendEmployeeOtp);
 
-// Employee Login route
+// Employee Login route - Only validates credentials but requires OTP verification for completion
 router.post("/login", loginEmployee);
+
+// Verify Admin OTP for login completion
+router.post("/verify-login-otp", verifyLoginAdminOtp);
 
 //Employee Register route
 router.post("/register", registerEmployee);

@@ -34,15 +34,12 @@ const LeaveSchema = new mongoose.Schema(
       enum: ["Pending", "Approved", "Rejected", "Cancelled"],
       default: "Pending",
     },
-    approver: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Employee",
+    approvedBy: {
+      type: String,
+      default: "No Approval",
     },
     approvalDate: {
       type: Date,
-    },
-    approvalComment: {
-      type: String,
     },
     isSandwich: {
       type: Boolean,

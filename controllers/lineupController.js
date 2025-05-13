@@ -3,7 +3,10 @@ const { handleAsync } = require("../utils/attemptAndOtp");
 const mongoose = require("mongoose");
 const Candidate = require("../models/candidateModel");
 const { emitNewFeed, emitFeedUpdate } = require("../utils/socketManager");
-const { checkCandidateLock } = require("../utils/candidateLockManager");
+const {
+  checkCandidateLock,
+  lockCandidate,
+} = require("../utils/candidateLockManager");
 
 // Create a new lineup
 const createLineup = handleAsync(async (req, res) => {
@@ -46,14 +49,24 @@ const createLineup = handleAsync(async (req, res) => {
     });
   }
 
-  // Check if candidate exists and is locked using the utility function
+  // Check if candidate is locked by a different employee
   const lockStatus = await checkCandidateLock(contactNumber);
+
   if (lockStatus && lockStatus.isLocked) {
-    return res.status(403).json({
-      success: false,
-      message: "This candidate is locked for 90 days due to selection status",
-      lockExpiryDate: lockStatus.lockExpiryDate,
-    });
+    // If candidate is locked by a different employee, prevent lineup creation
+    if (
+      lockStatus.lockedBy &&
+      lockStatus.lockedBy._id.toString() !== req.employee._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "This candidate is locked by another employee",
+        lockedBy: lockStatus.lockedBy.name?.en || "Unknown",
+        remainingDays: lockStatus.remainingDays,
+        remainingTime: lockStatus.remainingTime,
+        lockExpiryDate: lockStatus.lockExpiryDate,
+      });
+    }
   }
 
   // Check for existing lineup with same key details to prevent duplicates
@@ -87,6 +100,9 @@ const createLineup = handleAsync(async (req, res) => {
     remarks,
   });
 
+  // Lock the candidate for 30 days for the current employee
+  await lockCandidate(contactNumber, req.employee._id, "lineup");
+
   // Update candidate's lineup fields
   if (
     candidate.lastRegisteredBy &&
@@ -98,6 +114,7 @@ const createLineup = handleAsync(async (req, res) => {
       employee: req.employee._id,
     };
 
+    // Update callStatus to 'Lineup' if not already set
     await Candidate.findByIdAndUpdate(candidate._id, {
       lineupCompany: company,
       customLineupCompany: customCompany,
@@ -105,7 +122,15 @@ const createLineup = handleAsync(async (req, res) => {
       customLineupProcess: customProcess,
       lineupDate,
       interviewDate,
-      remarks: remarkHistory,
+      callStatus: "Lineup",
+      $push: {
+        remarks: remarkHistory,
+        callStatusHistory: {
+          status: "Lineup",
+          date: Date.now(),
+          employee: req.employee._id,
+        },
+      },
     });
   }
 
@@ -186,98 +211,73 @@ const updateLineup = handleAsync(async (req, res) => {
     });
   }
 
-  const lineup = await Lineup.findByIdAndUpdate(lineupId, updateData, {
-    new: true,
-    runValidators: true,
-  }).populate("company", "companyName");
-
-  if (!lineup) {
+  // Get the existing lineup
+  const existingLineup = await Lineup.findById(lineupId);
+  if (!existingLineup) {
     return res.status(404).json({
       success: false,
       message: "Lineup not found",
     });
   }
 
-  // Update candidate's lineup fields if candidate exists and lastRegisteredBy matches
-  const candidate = await Candidate.findOne({ mobileNo: lineup.contactNumber });
+  // Check if the candidate is locked by someone else
+  const lockStatus = await checkCandidateLock(existingLineup.contactNumber);
   if (
-    candidate &&
-    candidate.lastRegisteredBy &&
-    candidate.lastRegisteredBy.toString() === req.employee._id.toString()
+    lockStatus &&
+    lockStatus.isLocked &&
+    lockStatus.lockedBy &&
+    lockStatus.lockedBy._id.toString() !== req.employee._id.toString()
   ) {
-    const remarkHistory = {
-      remark: req.body.remarks,
-      date: Date.now(),
-      employee: req.employee._id,
-    };
+    return res.status(403).json({
+      success: false,
+      message: "This candidate is locked by another employee",
+      lockedBy: lockStatus.lockedBy.name?.en || "Unknown",
+      remainingDays: lockStatus.remainingDays,
+      remainingTime: lockStatus.remainingTime,
+      lockExpiryDate: lockStatus.lockExpiryDate,
+    });
+  }
 
-    const updateCandidate = {
-      lineupCompany: lineup.company,
-      customLineupCompany: lineup.customCompany,
-      lineupProcess: lineup.process,
-      customLineupProcess: lineup.customProcess,
-      lineupDate: lineup.lineupDate,
-      interviewDate: lineup.interviewDate,
-      remarks: remarkHistory,
-    };
+  // Update the lineup
+  const lineup = await Lineup.findByIdAndUpdate(lineupId, updateData, {
+    new: true,
+    runValidators: true,
+  }).populate("company", "companyName");
 
-    // If status is "Selected", lock the candidate for 90 days
-    if (updateData.status === "Selected") {
-      // Calculate date 90 days from now
-      const lockExpiryDate = new Date();
-      lockExpiryDate.setDate(lockExpiryDate.getDate() + 90);
+  // Update candidate record if status changed to reflect in candidate history
+  if (updateData.status && updateData.status !== existingLineup.status) {
+    const candidate = await Candidate.findOne({
+      mobileNo: lineup.contactNumber,
+    });
+    if (candidate) {
+      const remarkHistory = {
+        remark: `Lineup status updated to ${updateData.status}`,
+        date: Date.now(),
+        employee: req.employee._id,
+      };
 
-      updateCandidate.status = "Selected";
-      updateCandidate.isLocked = true;
-      updateCandidate.registrationLockExpiry = lockExpiryDate;
-    } else if (updateData.status && updateData.status !== "Selected") {
-      // Check if callStatus is "lineup" - if yes, set expiry to 30 days instead of unlocking
-      if (
-        candidate.callStatus &&
-        candidate.callStatus.toLowerCase() === "lineup"
-      ) {
-        const lockExpiryDate = new Date();
-        lockExpiryDate.setDate(lockExpiryDate.getDate() + 30);
-
-        updateCandidate.status = updateData.status;
-        updateCandidate.isLocked = true;
-        updateCandidate.registrationLockExpiry = lockExpiryDate;
-      } else {
-        // Unlock the candidate if status is updated to something other than "Selected" and not lineup
-        updateCandidate.status = updateData.status;
-        updateCandidate.isLocked = false;
-        updateCandidate.registrationLockExpiry = null;
-      }
+      await Candidate.findByIdAndUpdate(candidate._id, {
+        $push: {
+          remarks: remarkHistory,
+          callStatusHistory: {
+            status: `Lineup: ${updateData.status}`,
+            date: Date.now(),
+            employee: req.employee._id,
+          },
+        },
+      });
     }
-
-    await Candidate.findByIdAndUpdate(candidate._id, updateCandidate);
   }
 
-  // Emit WebSocket event for lineup update if status changed to "Selected"
-  if (updateData.status === "Selected") {
-    emitNewFeed({
-      employeeName: req.employee.name?.en || "Unknown",
-      action: "Selection",
-      candidateName: lineup.name,
-      company: lineup.company,
-      process: lineup.process,
-      timestamp: new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      status: "Selected",
-      id: lineup._id,
-    });
-  } else {
-    // Emit regular update event
-    emitFeedUpdate(lineupId, {
-      status: lineup.status,
-      timestamp: new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    });
-  }
+  // Emit WebSocket event for lineup update
+  emitFeedUpdate({
+    id: lineup._id,
+    status: lineup.status,
+    timestamp: new Date().toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  });
 
   return res.status(200).json({
     success: true,

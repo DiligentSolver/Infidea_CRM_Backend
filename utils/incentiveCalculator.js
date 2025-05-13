@@ -1,8 +1,9 @@
 /**
  * Calculates incentives based on joining types and counts
  * Rules:
- * - Incentives only apply when total joinings (International + Domestic) are 10 or more
+ * - Incentives only apply when total joinings (International + Domestic + Mid-Lateral) are 10 or more
  * - Domestic: 100 Rs per joining
+ * - Mid-Lateral: 500 Rs fixed per joining
  * - International:
  *   - 1-9: 200 Rs per joining
  *   - 10-14: 250 Rs per joining
@@ -14,23 +15,26 @@
 
 /**
  * Calculate incentives based on joining counts
- * @param {Object} counts - Object containing domestic and international joining counts
+ * @param {Object} counts - Object containing domestic, mid-lateral and international joining counts
  * @param {number} counts.domestic - Number of domestic joinings
+ * @param {number} counts.midLateral - Number of mid-lateral joinings
  * @param {number} counts.international - Number of international joinings
  * @returns {Object} - Object containing calculated incentives
  */
 const calculateIncentives = (counts) => {
-  const { domestic, international } = counts;
-  const totalJoinings = domestic + international;
+  const { domestic = 0, international = 0, midLateral = 0 } = counts;
+  const totalJoinings = domestic + international + midLateral;
 
   // No incentives if total joinings are less than 10
   if (totalJoinings < 10) {
     return {
       domestic: 0,
+      midLateral: 0,
       international: 0,
       total: 0,
       eligible: false,
       domesticRate: 0,
+      midLateralRate: 0,
       internationalRate: 0,
       message: "Incentives only apply when total joinings are 10 or more.",
     };
@@ -39,6 +43,10 @@ const calculateIncentives = (counts) => {
   // Calculate domestic incentives - fixed 100 Rs per joining
   const domesticRate = 100;
   const domesticIncentive = domestic * domesticRate;
+
+  // Calculate mid-lateral incentives - fixed 500 Rs per joining
+  const midLateralRate = 500;
+  const midLateralIncentive = midLateral * midLateralRate;
 
   // Calculate international incentives based on tiers
   let internationalRatePerJoining = 0;
@@ -56,14 +64,17 @@ const calculateIncentives = (counts) => {
   }
 
   const internationalIncentive = international * internationalRatePerJoining;
-  const totalIncentive = domesticIncentive + internationalIncentive;
+  const totalIncentive =
+    domesticIncentive + midLateralIncentive + internationalIncentive;
 
   return {
     domestic: domesticIncentive,
+    midLateral: midLateralIncentive,
     international: internationalIncentive,
     total: totalIncentive,
     eligible: true,
     domesticRate: domesticRate,
+    midLateralRate: midLateralRate,
     internationalRate: internationalRatePerJoining,
     message: "Eligible for incentives.",
   };
@@ -87,6 +98,10 @@ const getIncentiveRates = () => {
     domestic: {
       rate: 100,
       description: "Fixed rate of 100 Rs per domestic joining",
+    },
+    midLateral: {
+      rate: 500,
+      description: "Fixed rate of 500 Rs per mid-lateral joining",
     },
     international: [
       {
@@ -118,7 +133,7 @@ const getIncentiveRates = () => {
     minimumRequirement: {
       total: 10,
       description:
-        "Incentives only apply when total joinings (International + Domestic) are 10 or more",
+        "Incentives only apply when total joinings (International + Domestic + Mid-Lateral) are 10 or more",
     },
     eligibleStatus: "Joining Details Received",
   };

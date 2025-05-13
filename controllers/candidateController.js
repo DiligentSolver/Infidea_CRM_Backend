@@ -2,7 +2,10 @@ const Candidate = require("../models/candidateModel");
 const Employee = require("../models/employeeModel");
 const { handleAsync } = require("../utils/attemptAndOtp");
 const mongoose = require("mongoose");
-const { checkCandidateLock } = require("../utils/candidateLockManager");
+const {
+  checkCandidateLock,
+  LINEUP_LOCK_DAYS,
+} = require("../utils/candidateLockManager");
 
 // Check duplicity by mobile number
 exports.checkDuplicity = handleAsync(async (req, res, next) => {
@@ -140,16 +143,6 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
     ? candidate.lastRegisteredBy._id
     : null;
 
-  // Only lock the candidate if they have a lockable status (lineup or walkin)
-  const hasLockableStatus =
-    candidate.callStatus &&
-    (candidate.callStatus.toLowerCase() === "lineup" ||
-      candidate.callStatus.toLowerCase() === "walkin at infidea");
-
-  // Update registration lock
-  const registrationLockExpiry = new Date();
-  registrationLockExpiry.setDate(registrationLockExpiry.getDate() + 30);
-
   // Update registration history
   candidate.registrationHistory.push({
     registeredBy: req.employee._id,
@@ -164,9 +157,13 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
     }
   });
 
+  // Update the lastRegisteredBy to the current employee but DON'T lock the candidate on marking
   candidate.lastRegisteredBy = req.employee._id;
-  candidate.registrationLockExpiry = registrationLockExpiry;
-  candidate.isLocked = hasLockableStatus;
+
+  // Important: When marking a candidate, we DO NOT lock them regardless of status
+  candidate.isLocked = false;
+  candidate.registrationLockExpiry = null;
+
   await candidate.save();
 
   // Send notification to the previous owner
@@ -232,78 +229,70 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
   const existingCandidate = await Candidate.findOne({ mobileNo });
 
   if (existingCandidate) {
-    // Check if registration lock is still active
-    if (
-      existingCandidate.isLocked &&
-      existingCandidate.registrationLockExpiry &&
-      existingCandidate.registrationLockExpiry > new Date()
-    ) {
-      const remainingDays = Math.ceil(
-        (existingCandidate.registrationLockExpiry - new Date()) /
-          (1000 * 60 * 60 * 24)
-      );
-
-      // Get the employee who registered the candidate
-      const registeredBy = await mongoose
-        .model("Employee")
-        .findById(existingCandidate.lastRegisteredBy);
-
-      return res.status(400).json({
-        status: "fail",
-        message: `This candidate is already registered by ${registeredBy.name.en}. Please try again after ${remainingDays} days.`,
-      });
-    }
-  }
-
-  // Initialize call duration history if call duration is provided
-  const callDurationHistory = [];
-  if (callDuration && parseInt(callDuration) > 0) {
-    callDurationHistory.push({
-      duration: callDuration,
-      employee: req.employee._id,
-      date: new Date(),
-      summary: callSummary || "Initial call",
+    return res.status(409).json({
+      status: "fail",
+      message: "Candidate with this mobile number already exists",
     });
   }
 
   // Initialize callStatusHistory
   const callStatusHistory = [];
-  if (callStatus) {
-    callStatusHistory.push({
-      status: callStatus,
-      date: new Date(),
+  callStatusHistory.push({
+    status: callStatus || "New",
+    date: Date.now(),
+    employee: req.employee._id,
+  });
+
+  // Initialize callDurationHistory if provided
+  const callDurationHistory = [];
+  if (callDuration) {
+    callDurationHistory.push({
+      duration: callDuration,
+      date: Date.now(),
       employee: req.employee._id,
+      summary: callSummary,
     });
   }
 
+  // Initialize remarks if provided
   const remarksHistory = [];
-
   if (remarks) {
     remarksHistory.push({
       remark: remarks,
-      date: new Date(),
+      date: Date.now(),
       employee: req.employee._id,
     });
   }
 
-  // Calculate registration lock expiry and set isLocked only if callStatus is "lineup" or "walkin at infidea"
+  // Check if the status is a lockable status (lineup or walkin)
+  const hasLockableStatus =
+    callStatus &&
+    (callStatus.toLowerCase() === "lineup" ||
+      callStatus.toLowerCase() === "walkin at infidea");
+
+  // Set registration lock expiry date if lockable status
   let registrationLockExpiry = null;
   let isLocked = false;
 
-  // Only lock if it's a new candidate and the status is either lineup or walkin
-  if (
-    !existingCandidate &&
-    callStatus &&
-    (callStatus.toLowerCase() === "lineup" ||
-      callStatus.toLowerCase() === "walkin at infidea")
-  ) {
+  if (hasLockableStatus) {
     registrationLockExpiry = new Date();
-    registrationLockExpiry.setDate(registrationLockExpiry.getDate() + 30);
+    registrationLockExpiry.setDate(
+      registrationLockExpiry.getDate() + LINEUP_LOCK_DAYS
+    );
     isLocked = true;
   }
 
-  // Create new candidate
-  const newCandidate = await Candidate.create({
+  // Initialize registration history
+  const registrationHistory = [
+    {
+      registeredBy: req.employee._id,
+      registrationDate: new Date(),
+      status: "Active",
+    },
+  ];
+
+  // Create candidate record
+  const candidate = await Candidate.create({
     name,
     mobileNo,
     whatsappNo,
@@ -319,8 +308,12 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
     shift,
     relocation,
     companyProfile,
-    callStatus,
+    callStatus: callStatus || "New",
+    createdBy: req.employee._id,
+    lastRegisteredBy: req.employee._id,
     callStatusHistory,
+    callDurationHistory,
+    remarks: remarksHistory,
     locality,
     lineupCompany,
     customLineupCompany,
@@ -329,81 +322,15 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
     lineupDate,
     interviewDate,
     walkinDate,
-    createdBy: req.employee._id,
-    lastRegisteredBy: req.employee._id,
+    registrationHistory,
     registrationLockExpiry,
     isLocked,
-    registrationHistory: [
-      {
-        registeredBy: req.employee._id,
-        registrationDate: new Date(),
-        status: "Active",
-      },
-    ],
-    callDurationHistory,
-    remarks: remarksHistory,
   });
-
-  // Check if callStatus is lineup and create a lineup record
-  if (callStatus && callStatus.toLowerCase() === "lineup") {
-    const Lineup = require("../models/lineupModel");
-
-    // Check if a lineup record already exists for this candidate
-    const existingLineup = await Lineup.findOne({
-      contactNumber: mobileNo,
-      company: lineupCompany || customLineupCompany,
-      process: lineupProcess || customLineupProcess,
-      createdBy: req.employee._id,
-    });
-
-    // Only create a new lineup record if none exists
-    if (!existingLineup) {
-      // Create the lineup record
-      await Lineup.create({
-        name: name,
-        contactNumber: mobileNo,
-        company: lineupCompany || customLineupCompany,
-        process: lineupProcess || customLineupProcess,
-        lineupDate: lineupDate,
-        interviewDate: interviewDate,
-        status: "Scheduled",
-        createdBy: req.employee._id,
-        remarks: remarksHistory,
-      });
-    }
-  }
-
-  // Check if callStatus is "Walkin at Infidea"
-  if (callStatus && callStatus.toLowerCase() === "walkin at infidea") {
-    const Walkin = require("../models/walkinModel");
-
-    // Check if a walkin record already exists for this candidate
-    const existingWalkin = await Walkin.findOne({
-      contactNumber: mobileNo,
-      walkinDate: walkinDate,
-    });
-
-    // Only create a new walkin record if none exists
-
-    // Only create a new walkin record if none exists
-    if (!existingWalkin) {
-      // Create the walkin record
-      await Walkin.create({
-        candidateName: name,
-        contactNumber: mobileNo,
-        walkinDate: walkinDate,
-        remarks: remarksHistory,
-        status: "Walkin at Infidea",
-        createdBy: req.employee._id,
-      });
-    }
-  }
 
   res.status(201).json({
     status: "success",
-    message: "Candidate Information Saved",
     data: {
-      candidate: newCandidate,
+      candidate,
     },
   });
 });
@@ -876,6 +803,7 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
   for (const candidate of candidates) {
     let existingCandidate = null;
     let remainingDays = 0;
+    let remainingTime = null;
     try {
       // Validate required fields
       if (!candidate.name || !candidate.mobileNo) {
@@ -895,25 +823,32 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
       }).populate("lastRegisteredBy", "name");
 
       if (existingCandidate) {
-        // Check if registration lock is still active - candidates are only locked when in lineup or walkin
+        // Check if registration lock is still active
         if (
           existingCandidate.isLocked &&
-          existingCandidate.registrationLockExpiry &&
           existingCandidate.registrationLockExpiry > new Date()
         ) {
-          remainingDays = Math.ceil(
-            (existingCandidate.registrationLockExpiry - new Date()) /
-              (1000 * 60 * 60 * 24)
-          );
+          const diffMs = existingCandidate.registrationLockExpiry - new Date();
+          remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+          if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
+            const hours = Math.floor(diffMs / (1000 * 60 * 60));
+            const minutes = Math.floor(
+              (diffMs % (1000 * 60 * 60)) / (1000 * 60)
+            );
+            remainingTime = `${hours}h ${minutes}m`;
+          }
 
           results.failed++;
           results.details.push({
             mobileNo: candidate.mobileNo,
             name: candidate.name,
             status: "Failed",
-            reason: `Already registered by ${
+            reason: `Candidate is locked by ${
               existingCandidate.lastRegisteredBy?.name?.en || "another employee"
-            }. Locked for ${remainingDays} more days.`,
+            } for ${remainingDays} more days${
+              remainingTime ? ` and ${remainingTime}` : ""
+            }`,
           });
           continue;
         }
@@ -921,7 +856,6 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
         // Check if current employee is the last registered by
         const isLastRegisteredBy =
           existingCandidate.lastRegisteredBy &&
-          existingCandidate.lastRegisteredBy._id &&
           existingCandidate.lastRegisteredBy._id.toString() ===
             req.employee._id.toString();
 
@@ -960,17 +894,6 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
           ? existingCandidate.lastRegisteredBy._id
           : null;
 
-        // If candidate exists but is not locked and not already registered by this employee, mark them
-        // Only lock the candidate if they have a lockable status (lineup or walkin)
-        const hasLockableStatus =
-          existingCandidate.callStatus &&
-          (existingCandidate.callStatus.toLowerCase() === "lineup" ||
-            existingCandidate.callStatus.toLowerCase() === "walkin at infidea");
-
-        // Update registration lock
-        const registrationLockExpiry = new Date();
-        registrationLockExpiry.setDate(registrationLockExpiry.getDate() + 30);
-
         // Mark previous history entries as expired
         if (existingCandidate.registrationHistory) {
           existingCandidate.registrationHistory.forEach((entry) => {
@@ -999,8 +922,10 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
 
         // Update lastRegisteredBy to the current employee
         existingCandidate.lastRegisteredBy = req.employee._id;
-        existingCandidate.registrationLockExpiry = registrationLockExpiry;
-        existingCandidate.isLocked = hasLockableStatus;
+
+        // Important: Do not lock candidates when marking during bulk upload
+        existingCandidate.isLocked = false;
+        existingCandidate.registrationLockExpiry = null;
 
         // Save the changes
         await existingCandidate.save();
@@ -1038,112 +963,113 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
           id: existingCandidate._id,
         });
         continue;
-      }
+      } else {
+        // Create a new candidate record
 
-      // Initialize call duration history (defaults to 0 for imported records)
-      const callDurationHistory = [
-        {
-          duration: "0",
-          employee: req.employee._id,
-          date: new Date(),
-          summary: "Imported from Excel",
-        },
-      ];
+        // Prepare fields
+        const callStatus = candidate.callStatus || "New";
 
-      // Initialize call status history
-      const callStatusHistory = [
-        {
-          status: "New",
-          date: new Date(),
-          employee: req.employee._id,
-        },
-      ];
+        // Check if the status is a lockable status (lineup or walkin)
+        const hasLockableStatus =
+          callStatus &&
+          (callStatus.toLowerCase() === "lineup" ||
+            callStatus.toLowerCase() === "walkin at infidea");
 
-      // Initialize remarks with import information
-      const remarks = [
-        {
-          remark: "Imported from Excel",
-          date: new Date(),
-          employee: req.employee._id,
-        },
-      ];
+        // Set registration lock expiry date if lockable status
+        let registrationLockExpiry = null;
+        let isLocked = false;
 
-      // Create default values for required fields
-      // Note: Bulk uploaded candidates start with "New" status so they are not locked
-      // They will only be locked when their status changes to "lineup" or "walkin at infidea"
-      const newCandidate = await Candidate.create({
-        name: candidate.name,
-        mobileNo: candidate.mobileNo,
-        whatsappNo: candidate.whatsappNo || "Not Specified",
-        source: "Excel Import",
-        gender: candidate.gender || "Not Specified",
-        experience: candidate.experience || "Not Specified",
-        qualification: candidate.qualification || "Not Specified",
-        state: candidate.state || "Not Specified",
-        city: candidate.city || "Not Specified",
-        salaryExpectation: candidate.salaryExpectation || "Not Specified",
-        communication: candidate.communication || "Not Specified",
-        noticePeriod: candidate.noticePeriod || "Not Specified",
-        shift: candidate.shift || "Not Specified",
-        relocation: candidate.relocation || "Not Specified",
-        companyProfile: candidate.companyProfile || "Not Specified",
-        callStatus: "New",
-        callStatusHistory,
-        createdBy: req.employee._id,
-        lastRegisteredBy: req.employee._id,
-        isLocked: false, // Not locked initially, only when added to lineup or walkin
-        registrationHistory: [
+        if (hasLockableStatus) {
+          registrationLockExpiry = new Date();
+          registrationLockExpiry.setDate(
+            registrationLockExpiry.getDate() + LINEUP_LOCK_DAYS
+          );
+          isLocked = true;
+        }
+
+        // Initialize call status history
+        const callStatusHistory = [
+          {
+            status: callStatus,
+            date: Date.now(),
+            employee: req.employee._id,
+          },
+        ];
+
+        // Initialize registration history
+        const registrationHistory = [
           {
             registeredBy: req.employee._id,
             registrationDate: new Date(),
             status: "Active",
           },
-        ],
-        callDurationHistory,
-        remarks,
-      });
+        ];
 
-      results.successful++;
-      results.details.push({
-        mobileNo: candidate.mobileNo,
-        name: candidate.name,
-        status: "Success",
-        id: newCandidate._id,
-      });
-    } catch (error) {
-      results.failed++;
-      let reason = error.message;
-      // Check for MongoDB duplicate key error
-      if (
-        error.code === 11000 &&
-        error.keyPattern &&
-        error.keyPattern.mobileNo
-      ) {
-        let lockInfo = "";
-        if (
-          existingCandidate &&
-          existingCandidate.isLocked &&
-          existingCandidate.registrationLockExpiry &&
-          existingCandidate.registrationLockExpiry > new Date()
-        ) {
-          lockInfo = `Locked for ${remainingDays} more days.`;
-        } else {
-          lockInfo = "Not locked by anyone.";
-        }
-        reason = `This number already exists & ${lockInfo}`;
+        // Create the new candidate
+        const newCandidate = await Candidate.create({
+          name: candidate.name,
+          mobileNo: candidate.mobileNo,
+          whatsappNo: candidate.whatsappNo || candidate.mobileNo,
+          source: candidate.source || "Excel Import",
+          gender: candidate.gender || "Not Specified",
+          experience: candidate.experience || "Not Specified",
+          qualification: candidate.qualification || "Not Specified",
+          state: candidate.state || "Not Specified",
+          city: candidate.city || "Not Specified",
+          salaryExpectation: candidate.salaryExpectation || "Not Specified",
+          communication: candidate.communication || "Not Specified",
+          noticePeriod: candidate.noticePeriod || "Not Specified",
+          shift: candidate.shift || "Not Specified",
+          relocation: candidate.relocation || "Not Specified",
+          companyProfile: candidate.companyProfile || "Not Specified",
+          callStatus: callStatus,
+          callStatusHistory: callStatusHistory,
+          createdBy: req.employee._id,
+          lastRegisteredBy: req.employee._id,
+          registrationHistory: registrationHistory,
+          registrationLockExpiry: registrationLockExpiry,
+          isLocked: isLocked,
+          callDurationHistory: [
+            {
+              duration: "0",
+              employee: req.employee._id,
+              date: Date.now(),
+              summary: "Imported from Excel",
+            },
+          ],
+          remarks: [
+            {
+              remark: "Created via Excel import",
+              date: Date.now(),
+              employee: req.employee._id,
+            },
+          ],
+        });
+
+        results.successful++;
+        results.details.push({
+          mobileNo: candidate.mobileNo,
+          name: candidate.name,
+          status: "Created",
+          id: newCandidate._id,
+        });
       }
+    } catch (error) {
+      console.error("Error processing candidate:", error);
+      results.failed++;
       results.details.push({
         mobileNo: candidate.mobileNo || "Unknown",
         name: candidate.name || "Unknown",
         status: "Failed",
-        reason,
+        reason: error.message || "Server error",
       });
     }
   }
 
+  // Return the results
   res.status(200).json({
     status: "success",
-    message: `${results.successful} new candidates created, ${results.marked} existing candidates marked, and ${results.failed} failed out of ${results.total}.`,
+    message: "Bulk upload completed",
     results,
   });
 });
