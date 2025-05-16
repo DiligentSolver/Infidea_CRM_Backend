@@ -7,6 +7,7 @@ const {
   checkCandidateLock,
   lockCandidate,
 } = require("../utils/candidateLockManager");
+const Joining = require("../models/joiningModel");
 
 // Create a new lineup
 const createLineup = handleAsync(async (req, res) => {
@@ -21,6 +22,11 @@ const createLineup = handleAsync(async (req, res) => {
     customCompany,
     customProcess,
     remarks,
+    // Joining fields (required when status is "Joined")
+    joiningDate,
+    joiningType,
+    salary,
+    joiningRemarks,
   } = req.body;
 
   if (
@@ -37,6 +43,26 @@ const createLineup = handleAsync(async (req, res) => {
       success: false,
       message: "All fields are required",
     });
+  }
+
+  // Check if status is "Joined" and validate required joining fields
+  if (status === "Joined") {
+    if (!joiningDate || !joiningType) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "When status is Joined, joining date and joining type are required",
+      });
+    }
+
+    // Validate joiningType
+    if (!["International", "Domestic", "Mid-Lateral"].includes(joiningType)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Joining type must be either 'International', 'Domestic', or 'Mid-Lateral'",
+      });
+    }
   }
 
   // Check if candidate exists with this contact number
@@ -114,7 +140,9 @@ const createLineup = handleAsync(async (req, res) => {
       employee: req.employee._id,
     };
 
-    // Update callStatus to 'Lineup' if not already set
+    // Update callStatus based on lineup status
+    const callStatus = status === "Joined" ? "Joined" : "Lineup";
+
     await Candidate.findByIdAndUpdate(candidate._id, {
       lineupCompany: company,
       customLineupCompany: customCompany,
@@ -122,16 +150,36 @@ const createLineup = handleAsync(async (req, res) => {
       customLineupProcess: customProcess,
       lineupDate,
       interviewDate,
-      callStatus: "Lineup",
+      callStatus,
       $push: {
         remarks: remarkHistory,
         callStatusHistory: {
-          status: "Lineup",
+          status: callStatus,
           date: Date.now(),
           employee: req.employee._id,
         },
       },
     });
+  }
+
+  // If status is "Joined", create a joining record
+  if (status === "Joined") {
+    // Create a joining record
+    await Joining.create({
+      candidateName: name,
+      contactNumber,
+      company,
+      process,
+      joiningType,
+      salary,
+      joiningDate,
+      status: "Pending",
+      remarks: joiningRemarks || remarks,
+      createdBy: req.employee._id,
+    });
+
+    // Lock the candidate for 90 days for the current employee
+    await lockCandidate(contactNumber, req.employee._id, "joining");
   }
 
   // Emit WebSocket event for new lineup
@@ -204,6 +252,8 @@ const updateLineup = handleAsync(async (req, res) => {
   const { lineupId } = req.params;
   const updateData = req.body;
 
+  console.log(updateData);
+
   if (!mongoose.Types.ObjectId.isValid(lineupId)) {
     return res.status(400).json({
       success: false,
@@ -218,6 +268,29 @@ const updateLineup = handleAsync(async (req, res) => {
       success: false,
       message: "Lineup not found",
     });
+  }
+
+  // Check if updating to "Joined" status
+  if (updateData.status === "Joined" && existingLineup.status !== "Joined") {
+    // Validate required joining fields
+    const { joiningDate, joiningType } = updateData;
+
+    if (!joiningDate || !joiningType) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "When status is Joined, joining date and joining type are required",
+      });
+    }
+
+    // Validate joiningType
+    if (!["International", "Domestic", "Mid-Lateral"].includes(joiningType)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Joining type must be either 'International', 'Domestic', or 'Mid-Lateral'",
+      });
+    }
   }
 
   // Check if the candidate is locked by someone else
@@ -266,7 +339,47 @@ const updateLineup = handleAsync(async (req, res) => {
           },
         },
       });
+
+      // If status changed to "Joined", update callStatus as well
+      if (updateData.status === "Joined") {
+        await Candidate.findByIdAndUpdate(candidate._id, {
+          callStatus: "Joined",
+        });
+      }
     }
+  }
+
+  // If status is updated to "Joined", create a joining record
+  if (updateData.status === "Joined" && existingLineup.status !== "Joined") {
+    const { joiningDate, joiningType, salary, joiningRemarks } = updateData;
+
+    // Check if a joining already exists for this candidate, company and process
+    const existingJoining = await Joining.findOne({
+      contactNumber: existingLineup.contactNumber,
+    });
+
+    if (!existingJoining) {
+      // Create a joining record
+      await Joining.create({
+        candidateName: existingLineup.name,
+        contactNumber: existingLineup.contactNumber,
+        company: existingLineup.company,
+        process: existingLineup.process,
+        joiningType,
+        salary,
+        joiningDate,
+        status: "Pending",
+        remarks: joiningRemarks,
+        createdBy: req.employee._id,
+      });
+    }
+
+    // Lock the candidate for 90 days for the current employee
+    await lockCandidate(
+      existingLineup.contactNumber,
+      req.employee._id,
+      "joining"
+    );
   }
 
   // Emit WebSocket event for lineup update

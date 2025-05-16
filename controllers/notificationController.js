@@ -85,7 +85,7 @@ const createCandidateMarkNotification = async (
   try {
     const notificationData = {
       recipient: recipientEmployeeId,
-      message: `${markingEmployeeData.name.en} has marked candidate ${candidateData.name} (${candidateData.mobileNo}) which you previously registered.`,
+      message: `Someone has marked candidate ${candidateData.name} (${candidateData.mobileNo}) which you previously registered.`,
       type: "candidate_marked",
       metadata: {
         candidateId: candidateData._id,

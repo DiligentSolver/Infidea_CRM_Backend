@@ -12,22 +12,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-/**
- * Send email with optional HTML content and attachments
- * @param {String} to - Recipient email address
- * @param {String} subject - Email subject
- * @param {String} content - Email content (text or HTML)
- * @param {Boolean} isHtml - Whether content is HTML
- * @param {Array} attachments - Optional array of attachment objects
- * @returns {Promise<void>}
- */
-const sendEmail = async (
-  to,
-  subject,
-  content,
-  isHtml = false,
-  attachments = []
-) => {
+const sendEmail = async (to, subject, content, isHtml = false) => {
   try {
     const mailOptions = {
       from: `${APP_NAME}<${EMAIL_ID}>`,
@@ -40,11 +25,6 @@ const sendEmail = async (
       mailOptions.html = content;
     } else {
       mailOptions.text = content;
-    }
-
-    // Add attachments if provided
-    if (attachments && attachments.length > 0) {
-      mailOptions.attachments = attachments;
     }
 
     let info = await transporter.sendMail(mailOptions);

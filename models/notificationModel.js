@@ -13,7 +13,12 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["candidate_duplicity_check", "system", "other"],
+      enum: [
+        "candidate_duplicity_check",
+        "system",
+        "other",
+        "candidate_marked",
+      ],
       default: "system",
     },
     status: {

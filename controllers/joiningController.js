@@ -160,6 +160,7 @@ const createJoining = handleAsync(async (req, res) => {
 
   // Check if lineup exists with this contact number
   const lineup = await Lineup.findOne({
+    name: candidateName,
     contactNumber: contactNumber,
     company: company,
     process: process,
@@ -190,25 +191,13 @@ const createJoining = handleAsync(async (req, res) => {
   const lineupEmployeeId = lineup.createdBy;
   await lockCandidate(contactNumber, lineupEmployeeId, "joining");
 
-  // Update candidate with joining status
-  await Candidate.findOneAndUpdate(
-    { mobileNo: contactNumber },
-    {
-      $push: {
-        callStatusHistory: {
-          status: "Joined",
-          date: Date.now(),
-          employee: req.employee._id,
-        },
-        remarks: {
-          remark: remarks,
-          date: Date.now(),
-          employee: req.employee._id,
-        },
-      },
-      callStatus: "Joined",
-    }
-  );
+  // Update the lineup status to "Joined"
+  await Lineup.findByIdAndUpdate(lineup._id, {
+    status: "Joined",
+    remarks: `${remarks} - Candidate has joined on ${new Date(
+      joiningDate
+    ).toLocaleDateString()}`,
+  });
 
   // Update incentives
   joining = await updateJoiningIncentives(joining, true);
@@ -245,12 +234,31 @@ const getAllJoinings = handleAsync(async (req, res) => {
     .populate("createdBy", "name")
     .sort({ createdAt: -1 });
 
-  // Find eligible joinings
-  const eligibleJoinings = joinings.filter((joining) =>
+  // Get current month's first and last day
+  const now = new Date();
+  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastDayOfMonth = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    0,
+    23,
+    59,
+    59
+  );
+
+  // Filter joinings for current month for incentive calculation
+  const currentMonthJoinings = joinings.filter(
+    (joining) =>
+      new Date(joining.createdAt) >= firstDayOfMonth &&
+      new Date(joining.createdAt) <= lastDayOfMonth
+  );
+
+  // Find eligible joinings for current month
+  const eligibleJoinings = currentMonthJoinings.filter((joining) =>
     isEligibleStatus(joining.status)
   );
 
-  // Count international, domestic, and mid-lateral joinings
+  // Count international, domestic, and mid-lateral joinings for current month
   const internationalCount = eligibleJoinings.filter(
     (j) => j.joiningType === "International"
   ).length;
@@ -261,7 +269,7 @@ const getAllJoinings = handleAsync(async (req, res) => {
     (j) => j.joiningType === "Mid-Lateral"
   ).length;
 
-  // Calculate incentives
+  // Calculate incentives for current month
   const incentiveResult = calculateIncentives({
     domestic: domesticCount,
     international: internationalCount,
@@ -314,6 +322,11 @@ const getAllJoinings = handleAsync(async (req, res) => {
         total: internationalCount + domesticCount + midLateralCount,
       },
       incentives: incentiveResult,
+      period: {
+        startDate: firstDayOfMonth.toISOString().split("T")[0],
+        endDate: lastDayOfMonth.toISOString().split("T")[0],
+        label: "Current Month",
+      },
     },
   });
 });
@@ -399,7 +412,6 @@ const updateJoining = handleAsync(async (req, res) => {
     updateData.status === "Joining Details Received" &&
     existingJoining.status !== "Joining Details Received"
   ) {
-    // Ensure the candidate is locked for 90 days to the employee who created the lineup
     // Find the related lineup
     const lineup = await Lineup.findOne({
       contactNumber: joining.contactNumber,
@@ -410,6 +422,14 @@ const updateJoining = handleAsync(async (req, res) => {
     if (lineup) {
       // Lock the candidate for the employee who created the lineup
       await lockCandidate(joining.contactNumber, lineup.createdBy, "joining");
+
+      // Update the lineup status to "Joined"
+      await Lineup.findByIdAndUpdate(lineup._id, {
+        status: "Joined",
+        remarks: `${
+          lineup.remarks || ""
+        } - Joining status updated to Joining Details Received`,
+      });
     } else {
       // If no lineup found, lock for the current employee
       await lockCandidate(joining.contactNumber, req.employee._id, "joining");

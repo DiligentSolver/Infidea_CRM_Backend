@@ -7,6 +7,7 @@ const Employee = require("../models/employeeModel");
 const Leave = require("../models/leaveModel");
 const Attendance = require("../models/attendanceModel");
 const mongoose = require("mongoose");
+const { generateAndSendDailyReport } = require("../utils/dailyReportGenerator");
 
 /**
  * Format minutes into hours and minutes string
@@ -401,7 +402,7 @@ const getCompleteAnalytics = handleAsync(async (req, res) => {
     });
 
     // Calculate today's time spent using call durations
-    let todayTimeSpent = calculateTodayTime(employeeId, today, tomorrow);
+    let todayTimeSpent = await calculateTodayTime(employeeId, today, tomorrow);
     if (!todayTimeSpent || typeof todayTimeSpent !== "string")
       todayTimeSpent = "0h 0m";
 
@@ -1179,7 +1180,19 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
       (joining) => joining.createdBy?._id.toString() === employeeId.toString()
     ).length;
 
-    const employeeCalls = todayCalls.length;
+    const employeeCalls = todayCalls.filter((call) => {
+      // Only count calls that have duration history entries with duration > 0
+      return (
+        call.callDurationHistory &&
+        call.callDurationHistory.some(
+          (record) =>
+            record.employee &&
+            record.employee.toString() === employeeId.toString() &&
+            record.duration &&
+            parseInt(record.duration) > 0
+        )
+      );
+    }).length;
 
     // Calculate trend data (percentage change compared to previous period)
     const calculateTrend = (current, previous) => {
@@ -1238,8 +1251,8 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
 
     // Calculate conversion rates
     const conversionRate =
-      employeeLineups > 0
-        ? ((employeeCalls / employeeLineups) * 100).toFixed(1)
+      employeeCalls > 0
+        ? ((employeeLineups / employeeCalls) * 100).toFixed(1)
         : 0;
 
     return res.status(200).json({
@@ -1322,6 +1335,10 @@ const getIncentivesData = handleAsync(async (req, res) => {
     // Start of month
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
+    // Calculate quarter
+    const currentQuarter = Math.floor(today.getMonth() / 3);
+    const startOfQuarter = new Date(today.getFullYear(), currentQuarter * 3, 1);
+
     // Start of year
     const startOfYear = new Date(today.getFullYear(), 0, 1);
 
@@ -1340,14 +1357,6 @@ const getIncentivesData = handleAsync(async (req, res) => {
       0
     );
 
-    const todayIncentives = allIncentives
-      .filter(
-        (item) =>
-          new Date(item.createdAt) >= today &&
-          new Date(item.createdAt) < tomorrow
-      )
-      .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
-
     const weekIncentives = allIncentives
       .filter(
         (item) =>
@@ -1360,6 +1369,14 @@ const getIncentivesData = handleAsync(async (req, res) => {
       .filter(
         (item) =>
           new Date(item.createdAt) >= startOfMonth &&
+          new Date(item.createdAt) < tomorrow
+      )
+      .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
+
+    const quarterIncentives = allIncentives
+      .filter(
+        (item) =>
+          new Date(item.createdAt) >= startOfQuarter &&
           new Date(item.createdAt) < tomorrow
       )
       .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
@@ -1401,6 +1418,96 @@ const getIncentivesData = handleAsync(async (req, res) => {
           (item) =>
             new Date(item.createdAt) >= dayStart &&
             new Date(item.createdAt) <= dayEnd
+        ).length,
+      });
+    }
+
+    // Create weekly distribution (last 12 weeks)
+    const weeklyIncentives = [];
+    for (let i = 11; i >= 0; i--) {
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - today.getDay() - 7 * i);
+
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
+
+      // Format week label as "MMM DD - MMM DD YYYY"
+      const startMonth = weekStart.toLocaleString("default", {
+        month: "short",
+      });
+      const endMonth = weekEnd.toLocaleString("default", { month: "short" });
+      const startDay = weekStart.getDate();
+      const endDay = weekEnd.getDate();
+      const year = weekEnd.getFullYear();
+
+      let weekLabel;
+      if (startMonth === endMonth) {
+        weekLabel = `${startMonth} ${startDay}-${endDay}, ${year}`;
+      } else {
+        weekLabel = `${startMonth} ${startDay} - ${endMonth} ${endDay}, ${year}`;
+      }
+
+      const incentivesForWeek = allIncentives
+        .filter(
+          (item) =>
+            new Date(item.createdAt) >= weekStart &&
+            new Date(item.createdAt) <= weekEnd
+        )
+        .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
+
+      weeklyIncentives.push({
+        weekStart: weekStart.toISOString(),
+        weekEnd: weekEnd.toISOString(),
+        weekLabel,
+        amount: incentivesForWeek,
+        count: allIncentives.filter(
+          (item) =>
+            new Date(item.createdAt) >= weekStart &&
+            new Date(item.createdAt) <= weekEnd
+        ).length,
+      });
+    }
+
+    // Create quarterly distribution (last 8 quarters)
+    const quarterlyIncentives = [];
+    for (let i = 7; i >= 0; i--) {
+      const currentYear = today.getFullYear();
+      const currentQtr = Math.floor(today.getMonth() / 3);
+
+      // Calculate quarter number (0-3) and year
+      let qtrNumber = currentQtr - (i % 4);
+      let yearOffset = Math.floor(i / 4);
+      let year = currentYear - yearOffset;
+
+      while (qtrNumber < 0) {
+        qtrNumber += 4;
+        year--;
+      }
+
+      const qtrStart = new Date(year, qtrNumber * 3, 1);
+      const qtrEnd = new Date(year, qtrNumber * 3 + 3, 0);
+      qtrEnd.setHours(23, 59, 59, 999);
+
+      const qtrLabel = `Q${qtrNumber + 1} ${year}`;
+
+      const incentivesForQuarter = allIncentives
+        .filter(
+          (item) =>
+            new Date(item.createdAt) >= qtrStart &&
+            new Date(item.createdAt) <= qtrEnd
+        )
+        .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
+
+      quarterlyIncentives.push({
+        quarterStart: qtrStart.toISOString(),
+        quarterEnd: qtrEnd.toISOString(),
+        quarterLabel: qtrLabel,
+        amount: incentivesForQuarter,
+        count: allIncentives.filter(
+          (item) =>
+            new Date(item.createdAt) >= qtrStart &&
+            new Date(item.createdAt) <= qtrEnd
         ).length,
       });
     }
@@ -1493,15 +1600,17 @@ const getIncentivesData = handleAsync(async (req, res) => {
       data: {
         summary: {
           total: totalIncentives,
-          today: todayIncentives,
           week: weekIncentives,
           month: monthIncentives,
+          quarter: quarterIncentives,
           year: yearIncentives,
           count: allIncentives.length,
         },
         distributions: {
           daily: dailyIncentives,
+          weekly: weeklyIncentives,
           monthly: monthlyIncentives,
+          quarterly: quarterlyIncentives,
           byProcess: processDistribution,
           byCompany: companyDistribution,
         },
@@ -1707,9 +1816,23 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
     for (let day = 1; day <= totalDays; day++) {
       const currentDate = new Date(targetYear, targetMonth, day);
       const dayOfWeek = currentDate.getDay(); // 0 is Sunday, 6 is Saturday
+      const leave = leaveMap[day];
 
-      // Check if it's a Sunday (always weekoff)
+      // Check if the day is a weekend (Sunday or 2nd/4th Saturday)
+      let isWeekoff = false;
       if (dayOfWeek === 0) {
+        // Sunday is always weekoff
+        isWeekoff = true;
+      } else if (dayOfWeek === 6) {
+        // Check if it's 2nd or 4th Saturday (weekoff)
+        const weekOfMonth = Math.ceil(day / 7);
+        if (weekOfMonth === 2 || weekOfMonth === 4) {
+          isWeekoff = true;
+        }
+      }
+
+      // If it's a weekoff and there's no leave, mark it as weekoff
+      if (isWeekoff && !leave) {
         calendarData[day] = {
           status: "Week Off",
           type: "WO",
@@ -1720,39 +1843,80 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
         continue;
       }
 
-      // Check if it's a Saturday
-      if (dayOfWeek === 6) {
-        // Get the week number of the month (1-indexed)
-        const weekOfMonth = Math.ceil(day / 7);
+      // Check if the date is in the future
+      if (currentDate > today) {
+        if (leave) {
+          // Handle leave on future dates - same logic as for past dates with leaves
+          let leaveType;
+          switch (leave.leaveReason) {
+            case "Sick Leave":
+              leaveType = "SL";
+              break;
+            case "Privilege Leave":
+              leaveType = "PL";
+              break;
+            case "Casual Leave":
+              leaveType = "CL";
+              break;
+            case "Sandwich Leave":
+              leaveType = "SDL";
+              break;
+            default:
+              leaveType = "L";
+          }
 
-        // Check if it's 2nd or 4th Saturday (weekoff)
-        if (weekOfMonth === 2 || weekOfMonth === 4) {
+          let durationLabel;
+          switch (leave.leaveType) {
+            case "Half Day":
+              durationLabel = "HD";
+              break;
+            case "Early Logout":
+              durationLabel = "EL";
+              break;
+            case "Full Day":
+            default:
+              durationLabel = "";
+          }
+
+          const fullLeaveType = durationLabel
+            ? `${leaveType}-${durationLabel}`
+            : leaveType;
+
+          const status =
+            leave.status === "Approved"
+              ? `${fullLeaveType} (Approved)`
+              : leave.status === "Rejected"
+              ? `${fullLeaveType} (Rejected)`
+              : `${fullLeaveType} (Pending)`;
+
           calendarData[day] = {
-            status: "Week Off",
-            type: "WO",
+            status,
+            type: fullLeaveType,
+            present: false,
+            leaveDetails: {
+              id: leave._id,
+              type: leave.leaveType,
+              reason: leave.leaveReason,
+              status: leave.status,
+              description: leave.description || "",
+              approved: leave.status === "Approved",
+            },
+            attendanceDetails: null,
+          };
+        } else {
+          calendarData[day] = {
+            status: "Upcoming",
+            type: "U",
             present: false,
             leave: null,
             attendance: null,
           };
-          continue;
         }
-      }
-
-      // Check if the date is in the future
-      if (currentDate > today) {
-        calendarData[day] = {
-          status: "Upcoming",
-          type: "U",
-          present: false,
-          leave: null,
-          attendance: null,
-        };
         continue;
       }
 
       // For past dates, check attendance and leave records
       const attendance = attendanceMap[day];
-      const leave = leaveMap[day];
 
       // Default status if no attendance or leave record
       let status = "No Record";
@@ -1880,6 +2044,49 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
   }
 });
 
+/**
+ * Generate daily report for a specific date and send to admin emails
+ * @route POST /api/employee/generate-daily-report
+ * @access Admin, Superadmin
+ */
+const generateDailyReport = handleAsync(async (req, res) => {
+  try {
+    const { date } = req.body;
+
+    // Validate date parameter
+    let reportDate;
+    if (!date) {
+      // If no date provided, use yesterday
+      reportDate = new Date();
+      reportDate.setDate(reportDate.getDate() - 1);
+    } else {
+      // Parse provided date
+      reportDate = new Date(date);
+      if (isNaN(reportDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid date format. Please use YYYY-MM-DD format.",
+        });
+      }
+    }
+
+    // Generate and send the report
+    await generateAndSendDailyReport(reportDate);
+
+    return res.status(200).json({
+      success: true,
+      message: `Daily report for ${reportDate.toDateString()} generated and sent successfully.`,
+    });
+  } catch (error) {
+    console.error("Error generating daily report:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error generating daily report",
+      error: error.message,
+    });
+  }
+});
+
 module.exports = {
   getDashboardOverview,
   getTodayOverview,
@@ -1888,4 +2095,5 @@ module.exports = {
   getRecentFeeds,
   getAttendanceCalendar,
   getIncentivesData,
+  generateDailyReport,
 };

@@ -29,10 +29,12 @@ exports.applyLeave = async (req, res) => {
 
     // Find weekoff days between start and end dates
     const weekoffDates = [];
+    const allDates = [];
     const currentDate = new Date(start);
 
-    // Loop through each day to find weekoffs
+    // Loop through each day to find weekoffs and collect all dates
     while (currentDate <= end) {
+      allDates.push(new Date(currentDate));
       if (isWeekoff(currentDate)) {
         weekoffDates.push(new Date(currentDate));
       }
@@ -40,41 +42,31 @@ exports.applyLeave = async (req, res) => {
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    let leave;
+    // Simplified logic: If there are any weekoffs in the leave period, it's a sandwich leave
+    const isSandwich = weekoffDates.length > 0;
+    const actualLeaveReason = isSandwich ? "Sandwich Leave" : leaveReason;
 
-    if (weekoffDates.length > 0) {
-      // Create the leave record
-      leave = new Leave({
-        employee: employeeId,
-        leaveType,
-        leaveReason: "Sandwich Leave",
-        startDate,
-        endDate,
-        description,
-        status: "Pending",
-        // Mark as sandwich leave if there are weekoff days
-        isSandwich: weekoffDates.length > 0,
-      });
-      await leave.save();
-    } else {
-      leave = new Leave({
-        employee: employeeId,
-        leaveType,
-        leaveReason,
-        startDate,
-        endDate,
-        description,
-        status: "Pending",
-      });
-      await leave.save();
-    }
+    // Create the leave record
+    const leave = new Leave({
+      employee: employeeId,
+      leaveType,
+      leaveReason: actualLeaveReason,
+      startDate,
+      endDate,
+      description,
+      status: "Pending",
+      isSandwich: isSandwich,
+    });
+
+    await leave.save();
+
     res.status(201).json({
       success: true,
       message: "Leave application submitted successfully",
       data: {
         leave: leave,
         weekoffDates: weekoffDates.length > 0 ? weekoffDates : undefined,
-        isSandwich: weekoffDates.length > 0,
+        isSandwich: isSandwich,
       },
     });
   } catch (error) {

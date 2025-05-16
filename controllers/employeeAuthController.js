@@ -11,8 +11,8 @@ const { closeAllActiveActivities } = require("../utils/activityUtils");
 const {
   sendLoginVerificationOTP,
   verifyLoginOTP,
+  sendLogoutNotification,
 } = require("../utils/adminOtpService");
-const { sendLogoutReport } = require("../utils/logoutReportService");
 
 const {
   checkOtpAttempts,
@@ -131,6 +131,7 @@ exports.registerEmployee = handleAsync(async (req, res) => {
   await cleanupAttemptKeys(formattedEmail);
 
   return res.status(201).json({
+    success: true,
     message: "Registration successful",
   });
 });
@@ -183,7 +184,7 @@ exports.loginEmployee = handleAsync(async (req, res) => {
 
   // Send OTP to admin emails for verification
   try {
-    sendLoginVerificationOTP(user);
+    await sendLoginVerificationOTP(user);
 
     // Remove password from the response
     delete user.password;
@@ -473,13 +474,34 @@ exports.logoutEmployee = handleAsync(async (req, res) => {
   try {
     const employeeId = req.employee._id;
 
+    // Fetch the complete employee data to include in notification
+    const employee = await Employee.findById(employeeId).lean();
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
     // Close all active activities for this employee
     await closeAllActiveActivities(employeeId);
 
-    // Send logout report to admins (non-blocking)
-    sendLogoutReport(employeeId).catch((error) => {
-      console.error("Error sending logout report in background:", error);
-    });
+    // Send logout notification to admins (don't wait for it to complete)
+    sendLogoutNotification(employee)
+      .then((result) => {
+        if (result) {
+          console.info(
+            `Logout notification sent for employee: ${employee.email}`
+          );
+        } else {
+          console.warn(
+            `Failed to send logout notification for employee: ${employee.email}`
+          );
+        }
+      })
+      .catch((error) => {
+        console.error("Error in logout notification:", error);
+      });
 
     return res.status(200).json({
       success: true,

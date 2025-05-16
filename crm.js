@@ -19,6 +19,7 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const limiter = require("./middleware/ratelimiterRedis");
 const settingRoutes = require("./routes/settingRoutes");
 const languageRoutes = require("./routes/languageRoutes");
+const emailRoutes = require("./routes/emailRoutes"); // Import email routes
 const frontendApis = require("./frontendApis"); // Import frontend APIs
 const fileUpload = require("express-fileupload");
 const path = require("path");
@@ -27,6 +28,7 @@ const {
   scheduleNotificationCleanup,
 } = require("./utils/scheduledTasks");
 const { initScheduler } = require("./utils/scheduler");
+const { scheduleDailyReport } = require("./utils/dailyReportGenerator");
 
 dotenv.config();
 connectDB();
@@ -34,6 +36,7 @@ connectDB();
 // Initialize scheduled tasks
 scheduleActivityClosing();
 initScheduler(); // Initialize candidate lock scheduler
+scheduleDailyReport(); // Initialize daily report scheduler at 8 PM IST
 
 const http = require("http");
 const { Server } = require("socket.io");
@@ -80,6 +83,7 @@ app.use("/crm/api/candidates", candidateRoutes);
 app.use("/crm/api/activity", activityRoutes);
 app.use("/crm/api/leaves", leaveRoutes);
 app.use("/crm/api/notifications", notificationRoutes);
+app.use("/crm/api/email", emailRoutes); // Add email routes
 
 // Configure file upload middleware
 app.use(

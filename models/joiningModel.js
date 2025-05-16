@@ -57,7 +57,11 @@ const JoiningSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Employee",
     },
+    remarks: {
+      type: String,
+    },
   },
+
   { timestamps: true }
 );
 

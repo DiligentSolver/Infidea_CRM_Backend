@@ -7,6 +7,8 @@ const {
 const {
   sendEmployeeDetails,
   updateEmployeeProfile,
+  getProfileImageUrl,
+  updateProfilePicture,
 } = require("../controllers/employeeController");
 
 const {
@@ -17,6 +19,9 @@ const {
   getRecentFeeds,
   getAttendanceCalendar,
   getIncentivesData,
+  getDashboardStats,
+  getEmployeesData,
+  generateDailyReport,
 } = require("../controllers/employeeDashboardController");
 
 const router = express.Router();
@@ -87,5 +92,22 @@ router.get(
   roleMiddleware(["employee"]),
   getIncentivesData
 );
+
+router.get(
+  "/employee-profile-image-url",
+  authMiddleware,
+  roleMiddleware(["employee"]),
+  getProfileImageUrl
+);
+
+router.put(
+  "/update-employee-profile-image",
+  authMiddleware,
+  roleMiddleware(["employee"]),
+  updateProfilePicture
+);
+
+// Daily report generation route (admin only)
+router.post("/generate-daily-report", generateDailyReport);
 
 module.exports = router;

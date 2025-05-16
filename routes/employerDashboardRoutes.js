@@ -17,6 +17,8 @@ const {
   rejectCandidate,
   updateEmployerProfile,
   sendEmployerDetails,
+  getProfileImageUrl,
+  updateProfilePicture,
 } = require("../controllers/employerController");
 
 const { downloadApplicantsExcel } = require("../utils/excelOutputs");

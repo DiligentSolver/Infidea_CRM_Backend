@@ -20,11 +20,16 @@ router.get(
   candidateController.checkDuplicity
 );
 
-// Mark candidate for current employee
 router.post(
   "/mark/:mobileNo",
   employeeMiddleware,
   candidateController.markCandidate
+);
+
+router.get(
+  "/check-duplicate-input/:mobileNo",
+  employeeMiddleware,
+  candidateController.checkDulicateInputField
 );
 
 // Get my candidates

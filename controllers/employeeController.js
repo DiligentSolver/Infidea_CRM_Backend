@@ -1,7 +1,6 @@
 const Employee = require("../models/employeeModel");
 const { handleAsync } = require("../utils/attemptAndOtp");
-const bcrypt = require("bcrypt");
-const { handleEncryptData, signInToken } = require("../config/auth");
+const { handleEncryptData } = require("../config/auth");
 const formatAndValidateMobile = require("../utils/validators/formatMobileNumber");
 const { formatAndValidateEmail } = require("../utils/validators/formatEmail");
 
@@ -76,7 +75,29 @@ const updateEmployeeProfile = handleAsync(async (req, res) => {
   });
 });
 
+const getProfileImageUrl = handleAsync(async (req, res) => {
+  const employee = await Employee.findById(req.employee._id);
+  if (!employee) return res.status(404).json({ message: "Employee not found" });
+  return res.status(200).json({
+    message: "Profile picture updated successfully",
+    profileImage: employee.profileImage,
+  });
+});
+
+const updateProfilePicture = handleAsync(async (req, res) => {
+  const { profileImage } = req.body;
+  const employee = await Employee.findById(req.employee._id);
+  if (!employee) return res.status(404).json({ message: "Employee not found" });
+  employee.profileImage = profileImage;
+  await employee.save();
+  return res
+    .status(200)
+    .json({ message: "Profile picture updated successfully" });
+});
+
 module.exports = {
   sendEmployeeDetails,
   updateEmployeeProfile,
+  updateProfilePicture,
+  getProfileImageUrl,
 };
