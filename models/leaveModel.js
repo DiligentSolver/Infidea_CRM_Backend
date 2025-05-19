@@ -15,7 +15,13 @@ const LeaveSchema = new mongoose.Schema(
     leaveReason: {
       type: String,
       required: true,
-      enum: ["Sick Leave", "Privilege Leave", "Casual Leave", "Sandwich Leave"],
+      enum: [
+        "Sick Leave",
+        "Privilege Leave",
+        "Casual Leave",
+        "Sandwich Leave",
+        "Early Logout",
+      ],
     },
     startDate: {
       type: Date,

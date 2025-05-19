@@ -9,6 +9,7 @@ const {
   checkCandidateLock,
   LINEUP_LOCK_DAYS,
 } = require("../utils/candidateLockManager");
+const BulkUploadCount = require("../models/bulkUploadCountModel");
 
 // Check duplicity by mobile number
 exports.checkDuplicity = handleAsync(async (req, res, next) => {
@@ -354,6 +355,10 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
     });
   }
 
+  // Initialize lineup and walkin remarks history
+  const lineupRemarksHistory = [];
+  const walkinRemarksHistory = [];
+
   // Check if the status is a lockable status (lineup or walkin)
   const hasLockableStatus =
     callStatus &&
@@ -380,6 +385,29 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
       status: "Active",
     },
   ];
+
+  // Add lineup remarks history if status is lineup
+  if (callStatus && callStatus.toLowerCase() === "lineup") {
+    lineupRemarksHistory.push({
+      remark: remarks || "Initial lineup created",
+      date: new Date(),
+      employee: req.employee._id,
+      company: lineupCompany || customLineupCompany,
+      process: lineupProcess || customLineupProcess,
+      lineupDate: new Date(lineupDate),
+      interviewDate: new Date(interviewDate),
+    });
+  }
+
+  // Add walkin remarks history if status is walkin
+  if (callStatus && callStatus.toLowerCase() === "walkin at infidea") {
+    walkinRemarksHistory.push({
+      remark: remarks || "Initial walkin created",
+      date: new Date(),
+      employee: req.employee._id,
+      walkinDate: new Date(walkinDate),
+    });
+  }
 
   // Create candidate record
   const candidate = await Candidate.create({
@@ -415,6 +443,8 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
     registrationHistory,
     registrationLockExpiry,
     isLocked,
+    lineupRemarksHistory,
+    walkinRemarksHistory,
   });
 
   // Check if callStatus is lineup and create a lineup record
@@ -489,8 +519,8 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
       candidate.lastRegisteredBy._id &&
       candidate.lastRegisteredBy._id.toString() === req.employee._id.toString();
 
-    const createdByName = employee.find(
-      (e) => e._id.toString() === candidate.createdBy.toString()
+    const lastRegisteredByName = employee.find(
+      (emp) => emp._id.toString() === candidate.lastRegisteredBy._id.toString()
     ).name.en;
 
     let remainingDays = 0;
@@ -534,7 +564,7 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
       ...candidate._doc,
       isLockedByMe,
       isLastRegisteredByMe,
-      createdByName,
+      lastRegisteredByName,
       remainingDays,
       remainingTime,
       employeeCallHistory,
@@ -675,20 +705,51 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     });
   }
 
-  // Check if remarks are provided
-  if (req.body.remarks) {
-    // Initialize remarks array if it doesn't exist
-    existingCandidate.remarks = existingCandidate.remarks || [];
+  // Check if lineup details are being updated
+  if (
+    req.body.callStatus &&
+    req.body.callStatus.toLowerCase() === "lineup" &&
+    (req.body.lineupCompany ||
+      req.body.customLineupCompany ||
+      req.body.lineupProcess ||
+      req.body.customLineupProcess ||
+      req.body.lineupDate ||
+      req.body.interviewDate ||
+      req.body.remarks)
+  ) {
+    // Initialize lineup remarks history array if it doesn't exist
+    existingCandidate.lineupRemarksHistory =
+      existingCandidate.lineupRemarksHistory || [];
 
-    // Add new remark to the array
-    existingCandidate.remarks.push({
-      remark: req.body.remarks,
+    // Add new lineup remarks to history
+    existingCandidate.lineupRemarksHistory.push({
+      remark: req.body.remarks || "Lineup details updated",
       date: new Date(),
       employee: req.employee._id,
+      company: req.body.lineupCompany || req.body.customLineupCompany,
+      process: req.body.lineupProcess || req.body.customLineupProcess,
+      lineupDate: new Date(req.body.lineupDate),
+      interviewDate: new Date(req.body.interviewDate),
     });
+  }
 
-    // Remove remarks from req.body so it doesn't override the array
-    delete req.body.remarks;
+  // Check if walkin details are being updated
+  if (
+    req.body.callStatus &&
+    req.body.callStatus.toLowerCase() === "walkin at infidea" &&
+    (req.body.walkinDate || req.body.remarks)
+  ) {
+    // Initialize walkin remarks history array if it doesn't exist
+    existingCandidate.walkinRemarksHistory =
+      existingCandidate.walkinRemarksHistory || [];
+
+    // Add new walkin remarks to history
+    existingCandidate.walkinRemarksHistory.push({
+      remark: req.body.remarks || "Walkin details updated",
+      date: new Date(),
+      employee: req.employee._id,
+      walkinDate: new Date(req.body.walkinDate),
+    });
   }
 
   // Check if the candidate needs to be locked (only for first lineup/walkin and only if not already locked)
@@ -798,12 +859,16 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     updatedData.callStatusHistory = existingCandidate.callStatusHistory;
   }
 
-  if (existingCandidate.remarks) {
-    updatedData.remarks = existingCandidate.remarks;
-  }
-
   if (existingCandidate.registrationHistory) {
     updatedData.registrationHistory = existingCandidate.registrationHistory;
+  }
+
+  if (existingCandidate.lineupRemarksHistory) {
+    updatedData.lineupRemarksHistory = existingCandidate.lineupRemarksHistory;
+  }
+
+  if (existingCandidate.walkinRemarksHistory) {
+    updatedData.walkinRemarksHistory = existingCandidate.walkinRemarksHistory;
   }
 
   // Update the candidate
@@ -826,6 +891,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
       company: req.body.lineupCompany || req.body.customLineupCompany,
       process: req.body.lineupProcess || req.body.customLineupProcess,
       createdBy: req.employee._id,
+      lineupRemarks: req.body.lineupRemarks,
     });
 
     const newLineupData = {
@@ -837,7 +903,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
       interviewDate: req.body.interviewDate,
       status: "Scheduled",
       createdBy: req.employee._id,
-      remarks: req.body.remarks,
+      lineupRemarks: req.body.lineupRemarks,
     };
 
     if (existingLineup) {
@@ -879,6 +945,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     const existingWalkin = await Walkin.findOne({
       contactNumber: req.body.mobileNo || candidate.mobileNo,
       walkinDate: req.body.walkinDate,
+      walkinRemarks: req.body.walkinRemarks,
     });
 
     // Only create a new walkin record if none exists
@@ -888,7 +955,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
         candidateName: req.body.name || candidate.name,
         contactNumber: req.body.mobileNo || candidate.mobileNo,
         walkinDate: req.body.walkinDate,
-        remarks: req.body.remarks,
+        walkinRemarks: req.body.walkinRemarks,
         status: "Walkin at Infidea",
         createdBy: req.employee._id,
       });
@@ -929,18 +996,54 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
     });
   }
 
+  // Get today's date with time set to start of day
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Check current upload count for this employee today
+  let uploadCount = await BulkUploadCount.findOne({
+    employee: req.employee._id,
+    date: {
+      $gte: today,
+      $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+    },
+  });
+
+  if (!uploadCount) {
+    // Create new count record if none exists
+    uploadCount = new BulkUploadCount({
+      employee: req.employee._id,
+      date: today,
+      count: 0,
+    });
+  }
+
+  // Calculate how many more candidates can be uploaded today
+  const remainingLimit = 50 - uploadCount.count;
+
+  if (remainingLimit <= 0) {
+    return res.status(400).json({
+      status: "fail",
+      message:
+        "Daily upload limit of 50 candidates has been reached. Please try again tomorrow.",
+    });
+  }
+
+  // Limit the number of candidates to process
+  const candidatesToProcess = candidates.slice(0, remainingLimit);
+
   const results = {
-    total: candidates.length,
+    total: candidatesToProcess.length,
+    limited: candidates.length > remainingLimit,
+    remainingToday: remainingLimit,
     successful: 0,
     failed: 0,
     details: [],
   };
 
   // Process each candidate
-  for (const candidate of candidates) {
+  for (const candidate of candidatesToProcess) {
     let existingCandidate = null;
-    let remainingDays = 0;
-    let remainingTime = null;
     try {
       // Validate required fields
       if (!candidate.name || !candidate.mobileNo) {
@@ -1098,6 +1201,9 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
           status: "Created",
           id: newCandidate._id,
         });
+
+        // Increment the count for successfully created candidates
+        uploadCount.count++;
       }
     } catch (error) {
       console.error("Error processing candidate:", error);
@@ -1109,6 +1215,14 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
         reason: error.message || "Server error",
       });
     }
+  }
+
+  // Save the updated count
+  await uploadCount.save();
+
+  // If there were more candidates than the remaining limit
+  if (candidates.length > remainingLimit) {
+    results.message = `Only ${remainingLimit} out of ${candidates.length} candidates were processed due to daily upload limit of 50 candidates.`;
   }
 
   // Return the results
@@ -1257,5 +1371,34 @@ exports.checkCandidateLockStatus = handleAsync(async (req, res) => {
     message: lockStatus.isLocked
       ? "This candidate is locked due to selection status"
       : "This candidate is not locked",
+  });
+});
+
+// Check remaining upload quota for today
+exports.checkRemainingUploadQuota = handleAsync(async (req, res, next) => {
+  // Get today's date with time set to start of day
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Check current upload count for this employee today
+  let uploadCount = await BulkUploadCount.findOne({
+    employee: req.employee._id,
+    date: {
+      $gte: today,
+      $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+    },
+  });
+
+  const count = uploadCount ? uploadCount.count : 0;
+  const remainingQuota = 50 - count;
+
+  return res.status(200).json({
+    status: "success",
+    data: {
+      dailyLimit: 50,
+      uploaded: count,
+      remaining: remainingQuota,
+      canUpload: remainingQuota > 0,
+    },
   });
 });

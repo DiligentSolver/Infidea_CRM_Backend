@@ -19,7 +19,7 @@ const WalkinSchema = new mongoose.Schema(
       required: true,
       default: "Walkin at Infidea",
     },
-    remarks: {
+    walkinRemarks: {
       type: String,
     },
     createdBy: {

@@ -16,6 +16,7 @@ const ActivitySchema = new mongoose.Schema(
         "Client Meeting",
         "Office Celebration",
         "Interview Session",
+        "Logout",
       ],
       default: "On Desk",
       required: true,

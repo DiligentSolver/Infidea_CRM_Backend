@@ -17,13 +17,6 @@ const CandidateSchema = new mongoose.Schema(
     shift: { type: String, required: true },
     relocation: { type: String, required: true },
     companyProfile: { type: String, required: true },
-    remarks: [
-      {
-        remark: { type: String, required: true },
-        date: { type: Date, default: Date.now },
-        employee: { type: mongoose.Schema.Types.ObjectId, ref: "Employee" },
-      },
-    ],
     callStatus: {
       type: String,
       default: "New",
@@ -96,6 +89,37 @@ const CandidateSchema = new mongoose.Schema(
     lineupDate: { type: String },
     interviewDate: { type: String },
     walkinDate: { type: String },
+    workMode: {
+      type: String,
+      enum: ["Office", "Hybrid", "Any Mode"],
+    },
+    lineupRemarksHistory: [
+      {
+        remark: { type: String, required: true },
+        date: { type: Date, default: Date.now },
+        employee: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Employee",
+          required: true,
+        },
+        company: { type: String, required: true },
+        process: { type: String, required: true },
+        lineupDate: { type: Date, required: true },
+        interviewDate: { type: Date, required: true },
+      },
+    ],
+    walkinRemarksHistory: [
+      {
+        remark: { type: String, required: true },
+        date: { type: Date, default: Date.now },
+        employee: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Employee",
+          required: true,
+        },
+        walkinDate: { type: Date, required: true },
+      },
+    ],
   },
   { timestamps: true }
 );

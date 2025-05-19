@@ -43,7 +43,7 @@ const LineupSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Employee",
     },
-    remarks: {
+    lineupRemarks: {
       type: String,
       required: false,
     },

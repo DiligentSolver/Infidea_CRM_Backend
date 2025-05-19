@@ -210,10 +210,29 @@ const getAllLineups = handleAsync(async (req, res) => {
     createdAt: -1,
   });
 
+  const candidate = await Candidate.findOne({
+    mobileNo: lineups[0].contactNumber,
+  });
+
+  // Add editable property to each lineup
+  const lineupResults = lineups.map((lineup) => {
+    const isLockedByMe =
+      candidate.isLocked &&
+      candidate.lastRegisteredBy.toString() === req.employee._id.toString();
+
+    // A lineup is not editable if it's in "Joined" status, locked, and locked by current employee
+    const editable = !(isLockedByMe && lineup.status === "Joined");
+
+    return {
+      ...lineup.toObject(),
+      editable,
+    };
+  });
+
   return res.status(200).json({
     success: true,
     message: "Lineups fetched successfully",
-    lineups,
+    lineups: lineupResults,
     totalLineups: lineups.length,
   });
 });
@@ -240,10 +259,26 @@ const getLineupById = handleAsync(async (req, res) => {
     });
   }
 
+  const isLockedByMe =
+    lineup.lockedBy &&
+    lineup.lockedBy.toString() === req.employee._id.toString();
+
+  // A lineup is not editable if it's in "Joined" status, locked, and locked by current employee
+  const editable = !(
+    isLockedByMe &&
+    lineup.isLocked &&
+    lineup.status === "Joined"
+  );
+
+  const lineupResult = {
+    ...lineup.toObject(),
+    editable,
+  };
+
   return res.status(200).json({
     success: true,
     message: "Lineup fetched successfully",
-    lineup,
+    lineup: lineupResult,
   });
 });
 
@@ -267,6 +302,24 @@ const updateLineup = handleAsync(async (req, res) => {
     return res.status(404).json({
       success: false,
       message: "Lineup not found",
+    });
+  }
+
+  // Check if lineup is editable
+  const isLockedByMe =
+    existingLineup.lockedBy &&
+    existingLineup.lockedBy.toString() === req.employee._id.toString();
+
+  const isEditable = !(
+    isLockedByMe &&
+    existingLineup.isLocked &&
+    existingLineup.status === "Joined"
+  );
+
+  if (!isEditable) {
+    return res.status(403).json({
+      success: false,
+      message: "You cannot update this lineup as it is marked as non-editable",
     });
   }
 

@@ -486,6 +486,17 @@ exports.logoutEmployee = handleAsync(async (req, res) => {
     // Close all active activities for this employee
     await closeAllActiveActivities(employeeId);
 
+    // Create logout activity record
+    const logoutActivity = new Activity({
+      employeeId,
+      type: "Logout",
+      startTime: new Date(),
+      endTime: new Date(), // Logout is instantaneous
+      isActive: false,
+    });
+
+    await logoutActivity.save();
+
     // Send logout notification to admins (don't wait for it to complete)
     sendLogoutNotification(employee)
       .then((result) => {

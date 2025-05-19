@@ -20,6 +20,7 @@ const limiter = require("./middleware/ratelimiterRedis");
 const settingRoutes = require("./routes/settingRoutes");
 const languageRoutes = require("./routes/languageRoutes");
 const emailRoutes = require("./routes/emailRoutes"); // Import email routes
+const thoughtRoutes = require("./routes/thoughtRoutes"); // Import thought routes
 const frontendApis = require("./frontendApis"); // Import frontend APIs
 const fileUpload = require("express-fileupload");
 const path = require("path");
@@ -84,6 +85,7 @@ app.use("/crm/api/activity", activityRoutes);
 app.use("/crm/api/leaves", leaveRoutes);
 app.use("/crm/api/notifications", notificationRoutes);
 app.use("/crm/api/email", emailRoutes); // Add email routes
+app.use("/crm/api/thoughts", thoughtRoutes); // Add thought routes
 
 // Configure file upload middleware
 app.use(

@@ -90,6 +90,13 @@ router.post(
   candidateController.bulkUploadCandidates
 );
 
+// Check remaining upload quota for today
+router.get(
+  "/upload-quota",
+  employeeMiddleware,
+  candidateController.checkRemainingUploadQuota
+);
+
 // Add a new route to check if a candidate is locked
 router.get(
   "/check-lock/:contactNumber",
