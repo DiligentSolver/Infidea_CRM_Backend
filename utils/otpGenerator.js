@@ -1,1 +1,6 @@
-exports.generateOTP = () => Math.floor(1000 + Math.random() * 9000).toString();
+/**
+ * Generates a 6-digit OTP
+ * @returns {string} - 6-digit OTP
+ */
+exports.generateOTP = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
