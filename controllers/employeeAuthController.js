@@ -21,6 +21,8 @@ const {
   sendEmailOtpResponse,
 } = require("../utils/attemptAndOtp");
 
+const dateUtils = require("../utils/dateUtils");
+
 // Send Employee OTP
 exports.sendEmployeeOtp = handleAsync(async (req, res) => {
   const formattedEmail = formatAndValidateEmail(req.body.email);
@@ -146,11 +148,9 @@ exports.loginEmployee = handleAsync(async (req, res) => {
   }
 
   // Check if the current time is within allowed login hours (9 AM to 9 PM IST)
-  const currentTime = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
-  const istTime = new Date(currentTime.getTime() + istOffset);
-  const istHours = istTime.getUTCHours();
-  const istMinutes = istTime.getUTCMinutes();
+  const istTime = dateUtils.getCurrentDate();
+  const istHours = istTime.getHours();
+  const istMinutes = istTime.getMinutes();
 
   // Convert current time to decimal hours for easy comparison (e.g., 9:30 = 9.5)
   const currentHourDecimal = istHours + istMinutes / 60;
@@ -233,15 +233,12 @@ exports.verifyLoginAdminOtp = handleAsync(async (req, res) => {
   // Close only "On Desk" active activities
   await Activity.updateMany(
     { employeeId: user._id, type: "On Desk", endTime: null },
-    { endTime: new Date() }
+    { endTime: dateUtils.getCurrentDate() }
   );
 
   // Set today's date to start of day for accurate comparison
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  const today = dateUtils.startOfDay();
+  const tomorrow = dateUtils.addTime(today, 1, "days");
 
   // Check if the employee has an approved leave that covers today
   const leave = await Leave.findOne({
@@ -277,7 +274,7 @@ exports.verifyLoginAdminOtp = handleAsync(async (req, res) => {
     currentActivity = new Activity({
       employeeId: user._id,
       type: "On Desk",
-      startTime: new Date(),
+      startTime: dateUtils.getCurrentDate(),
     });
     await currentActivity.save();
   }
@@ -490,8 +487,8 @@ exports.logoutEmployee = handleAsync(async (req, res) => {
     const logoutActivity = new Activity({
       employeeId,
       type: "Logout",
-      startTime: new Date(),
-      endTime: new Date(), // Logout is instantaneous
+      startTime: dateUtils.getCurrentDate(),
+      endTime: dateUtils.getCurrentDate(), // Logout is instantaneous
       isActive: false,
     });
 

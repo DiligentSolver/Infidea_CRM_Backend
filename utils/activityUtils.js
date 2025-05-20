@@ -1,4 +1,5 @@
 const Activity = require("../models/activityModel");
+const dateUtils = require("../utils/dateUtils");
 
 /**
  * Closes all active activities for a specific employee
@@ -7,6 +8,7 @@ const Activity = require("../models/activityModel");
  */
 exports.closeAllActiveActivities = async (employeeId) => {
   try {
+    const now = dateUtils.getCurrentDate();
     // Find all active activities for the employee
     const activeActivities = await Activity.find({
       employeeId,
@@ -19,11 +21,10 @@ exports.closeAllActiveActivities = async (employeeId) => {
     }
 
     // Mark each activity as closed
-    const closingTime = new Date();
     const closedActivities = [];
 
     for (const activity of activeActivities) {
-      activity.endTime = closingTime;
+      activity.endTime = now;
       activity.isActive = false;
       await activity.save();
       closedActivities.push(activity);
@@ -33,5 +34,18 @@ exports.closeAllActiveActivities = async (employeeId) => {
   } catch (error) {
     console.error("Error closing activities:", error);
     throw error;
+  }
+};
+
+const closeActivity = async (activityId) => {
+  try {
+    // ... existing code ...
+
+    // Update the endTime to current time
+    const closingTime = dateUtils.getCurrentDate();
+
+    // ... existing code ...
+  } catch (error) {
+    // ... existing code ...
   }
 };

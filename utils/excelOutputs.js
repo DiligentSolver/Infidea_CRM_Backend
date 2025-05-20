@@ -1,6 +1,7 @@
 const ExcelJS = require("exceljs");
 const User = require("../models/userModel");
 const Job = require("../models/jobModel");
+const dateUtils = require("./dateUtils");
 
 const downloadUsersExcel = async (req, res) => {
   try {
@@ -131,46 +132,18 @@ const downloadUsersExcel = async (req, res) => {
         return experiences.reduce((latest, current) => {
           const currentDate =
             current.endDate === "present"
-              ? new Date()
-              : new Date(current.endDate);
+              ? dateUtils.getCurrentDate()
+              : dateUtils.convertToIST(new Date(current.endDate));
+
           const latestDate =
             latest.endDate === "present"
-              ? new Date()
-              : new Date(latest.endDate);
+              ? dateUtils.getCurrentDate()
+              : dateUtils.convertToIST(new Date(latest.endDate));
 
-          return currentDate > latestDate ? current : latest;
+          return dateUtils.compareDates(currentDate, latestDate) > 0
+            ? current
+            : latest;
         }, experiences[0]);
-      };
-
-      const formatDateWithMonthName = (dateStr) => {
-        if (!dateStr) return "";
-        try {
-          const date = new Date(dateStr);
-          if (isNaN(date.getTime())) return "";
-
-          const months = [
-            "January",
-            "February",
-            "March",
-            "April",
-            "May",
-            "June",
-            "July",
-            "August",
-            "September",
-            "October",
-            "November",
-            "December",
-          ];
-
-          const day = date.getDate().toString().padStart(2, "0");
-          const month = months[date.getMonth()];
-          const year = date.getFullYear();
-
-          return `${day}-${month}-${year}`;
-        } catch (error) {
-          return "";
-        }
       };
 
       const latestCompany = getLatestCompanyDetails(experienceDetails);
@@ -190,7 +163,9 @@ const downloadUsersExcel = async (req, res) => {
           : "",
         alternateMobile: user.alternateMobile || "",
         email: user.email || "",
-        dob: user.dob ? formatDateWithMonthName(user.dob) : "",
+        dob: user.dob
+          ? dateUtils.formatDate(new Date(user.dob), "DD-MMM-YYYY")
+          : "",
         age: user.age || "",
         gender: user.gender || "",
         maritalStatus: user.maritalStatus || "",
@@ -255,9 +230,10 @@ const downloadUsersExcel = async (req, res) => {
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=Jobseekers_Data_${
-        new Date().toISOString().split("T")[0]
-      }.xlsx`
+      `attachment; filename=Jobseekers_Data_${dateUtils.formatDate(
+        dateUtils.getCurrentDate(),
+        "YYYY-MM-DD"
+      )}.xlsx`
     );
 
     // Stream the Excel file as a response
@@ -400,7 +376,7 @@ const downloadApplicantsExcel = async (req, res) => {
     const formatDateWithMonthName = (dateStr) => {
       if (!dateStr) return "";
       try {
-        const date = new Date(dateStr);
+        const date = dateUtils.convertToIST(new Date(dateStr));
         if (isNaN(date.getTime())) return "";
 
         const months = [
@@ -435,12 +411,17 @@ const downloadApplicantsExcel = async (req, res) => {
       return experiences.reduce((latest, current) => {
         const currentDate =
           current.endDate === "present"
-            ? new Date()
-            : new Date(current.endDate);
-        const latestDate =
-          latest.endDate === "present" ? new Date() : new Date(latest.endDate);
+            ? dateUtils.getCurrentDate()
+            : dateUtils.convertToIST(new Date(current.endDate));
 
-        return currentDate > latestDate ? current : latest;
+        const latestDate =
+          latest.endDate === "present"
+            ? dateUtils.getCurrentDate()
+            : dateUtils.convertToIST(new Date(latest.endDate));
+
+        return dateUtils.compareDates(currentDate, latestDate) > 0
+          ? current
+          : latest;
       }, experiences[0]);
     };
 
@@ -502,7 +483,9 @@ const downloadApplicantsExcel = async (req, res) => {
           ? user.whatsappNo.replace(/^(\+91)/, "")
           : "",
         email: user.email || "",
-        dob: user.dob ? formatDateWithMonthName(user.dob) : "",
+        dob: user.dob
+          ? dateUtils.formatDate(new Date(user.dob), "DD-MMM-YYYY")
+          : "",
         age: user.age || "",
         gender: user.gender || "",
         experiencelevel: user.experience || "",
@@ -653,7 +636,7 @@ const downloadJobsExcel = async (req, res) => {
     const formatDateWithMonthName = (dateStr) => {
       if (!dateStr) return "";
       try {
-        const date = new Date(dateStr);
+        const date = dateUtils.convertToIST(new Date(dateStr));
         if (isNaN(date.getTime())) return "";
 
         const months = [
@@ -730,9 +713,10 @@ const downloadJobsExcel = async (req, res) => {
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=Jobs_Data_${
-        new Date().toISOString().split("T")[0]
-      }.xlsx`
+      `attachment; filename=Jobs_Data_${dateUtils.formatDate(
+        dateUtils.getCurrentDate(),
+        "YYYY-MM-DD"
+      )}.xlsx`
     );
 
     // Send the Excel file as a response

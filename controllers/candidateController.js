@@ -10,6 +10,8 @@ const {
   LINEUP_LOCK_DAYS,
 } = require("../utils/candidateLockManager");
 const BulkUploadCount = require("../models/bulkUploadCountModel");
+const mongoose = require("mongoose");
+const dateUtils = require("../utils/dateUtils");
 
 // Check duplicity by mobile number
 exports.checkDuplicity = handleAsync(async (req, res, next) => {
@@ -31,8 +33,12 @@ exports.checkDuplicity = handleAsync(async (req, res, next) => {
   let remainingDays = 0;
   let remainingTime = null;
 
-  if (candidate.isLocked && candidate.registrationLockExpiry > new Date()) {
-    const diffMs = candidate.registrationLockExpiry - new Date();
+  if (
+    candidate.isLocked &&
+    candidate.registrationLockExpiry > dateUtils.getCurrentDate()
+  ) {
+    const diffMs =
+      candidate.registrationLockExpiry - dateUtils.getCurrentDate();
     remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
     if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
@@ -70,7 +76,8 @@ exports.checkDuplicity = handleAsync(async (req, res, next) => {
     remainingDays,
     remainingTime,
     isLocked:
-      candidate.isLocked && candidate.registrationLockExpiry > new Date(),
+      candidate.isLocked &&
+      candidate.registrationLockExpiry > dateUtils.getCurrentDate(),
   });
 });
 
@@ -120,8 +127,12 @@ exports.checkDulicateInputField = handleAsync(async (req, res, next) => {
     });
   }
 
-  if (candidate.isLocked && candidate.registrationLockExpiry > new Date()) {
-    const diffMs = candidate.registrationLockExpiry - new Date();
+  if (
+    candidate.isLocked &&
+    candidate.registrationLockExpiry > dateUtils.getCurrentDate()
+  ) {
+    const diffMs =
+      candidate.registrationLockExpiry - dateUtils.getCurrentDate();
     const remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
     let remainingTime = null;
     if (diffMs < 24 * 60 * 60 * 1000) {
@@ -183,8 +194,12 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
     });
   }
 
-  if (candidate.isLocked && candidate.registrationLockExpiry > new Date()) {
-    const diffMs = candidate.registrationLockExpiry - new Date();
+  if (
+    candidate.isLocked &&
+    candidate.registrationLockExpiry > dateUtils.getCurrentDate()
+  ) {
+    const diffMs =
+      candidate.registrationLockExpiry - dateUtils.getCurrentDate();
     const remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
     let remainingTime = null;
     if (diffMs < 24 * 60 * 60 * 1000) {
@@ -240,7 +255,7 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
   // Update registration history
   candidate.registrationHistory.push({
     registeredBy: req.employee._id,
-    registrationDate: new Date(),
+    registrationDate: dateUtils.getCurrentDate(),
     status: "Active",
   });
 
@@ -330,7 +345,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
   const callStatusHistory = [];
   callStatusHistory.push({
     status: callStatus || "New",
-    date: Date.now(),
+    date: dateUtils.getCurrentDate(),
     employee: req.employee._id,
   });
 
@@ -339,7 +354,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
   if (callDuration) {
     callDurationHistory.push({
       duration: callDuration,
-      date: Date.now(),
+      date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
       summary: callSummary,
     });
@@ -350,7 +365,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
   if (remarks) {
     remarksHistory.push({
       remark: remarks,
-      date: Date.now(),
+      date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
     });
   }
@@ -370,7 +385,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
   let isLocked = false;
 
   if (hasLockableStatus) {
-    registrationLockExpiry = new Date();
+    registrationLockExpiry = dateUtils.getCurrentDate();
     registrationLockExpiry.setDate(
       registrationLockExpiry.getDate() + LINEUP_LOCK_DAYS
     );
@@ -381,7 +396,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
   const registrationHistory = [
     {
       registeredBy: req.employee._id,
-      registrationDate: new Date(),
+      registrationDate: dateUtils.getCurrentDate(),
       status: "Active",
     },
   ];
@@ -390,7 +405,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
   if (callStatus && callStatus.toLowerCase() === "lineup") {
     lineupRemarksHistory.push({
       remark: remarks || "Initial lineup created",
-      date: new Date(),
+      date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
       company: lineupCompany || customLineupCompany,
       process: lineupProcess || customLineupProcess,
@@ -403,7 +418,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
   if (callStatus && callStatus.toLowerCase() === "walkin at infidea") {
     walkinRemarksHistory.push({
       remark: remarks || "Initial walkin created",
-      date: new Date(),
+      date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
       walkinDate: new Date(walkinDate),
     });
@@ -527,8 +542,12 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
 
     let remainingTime = null;
 
-    if (candidate.isLocked && candidate.registrationLockExpiry > new Date()) {
-      const diffMs = candidate.registrationLockExpiry - new Date();
+    if (
+      candidate.isLocked &&
+      candidate.registrationLockExpiry > dateUtils.getCurrentDate()
+    ) {
+      const diffMs =
+        candidate.registrationLockExpiry - dateUtils.getCurrentDate();
       remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
       if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
@@ -643,7 +662,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
   const isLocked =
     existingCandidate.isLocked &&
     existingCandidate.registrationLockExpiry &&
-    existingCandidate.registrationLockExpiry > new Date();
+    existingCandidate.registrationLockExpiry > dateUtils.getCurrentDate();
 
   const isUnderMe =
     existingCandidate.lastRegisteredBy &&
@@ -681,7 +700,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
       existingCandidate.callDurationHistory.push({
         duration: req.body.callDuration,
         employee: req.employee._id,
-        date: new Date(),
+        date: dateUtils.getCurrentDate(),
         summary: req.body.callSummary || "Call update",
       });
     }
@@ -700,7 +719,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     // Add new call status to history
     existingCandidate.callStatusHistory.push({
       status: req.body.callStatus,
-      date: new Date(),
+      date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
     });
   }
@@ -724,7 +743,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     // Add new lineup remarks to history
     existingCandidate.lineupRemarksHistory.push({
       remark: req.body.remarks || "Lineup details updated",
-      date: new Date(),
+      date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
       company: req.body.lineupCompany || req.body.customLineupCompany,
       process: req.body.lineupProcess || req.body.customLineupProcess,
@@ -746,7 +765,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     // Add new walkin remarks to history
     existingCandidate.walkinRemarksHistory.push({
       remark: req.body.remarks || "Walkin details updated",
-      date: new Date(),
+      date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
       walkinDate: new Date(req.body.walkinDate),
     });
@@ -794,7 +813,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
       existingCandidate.registrationHistory || [];
     existingCandidate.registrationHistory.push({
       registeredBy: req.employee._id,
-      registrationDate: new Date(),
+      registrationDate: dateUtils.getCurrentDate(),
       status: "Active",
     });
 
@@ -835,13 +854,16 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
   if (
     isMovingToLockableStatus &&
     (!existingCandidate.isLocked ||
-      existingCandidate.registrationLockExpiry < new Date()) &&
+      existingCandidate.registrationLockExpiry < dateUtils.getCurrentDate()) &&
     (!wasAlreadyLockableStatus ||
-      existingCandidate.registrationLockExpiry < new Date())
+      existingCandidate.registrationLockExpiry < dateUtils.getCurrentDate())
   ) {
     // Set registration lock for 30 days
-    const registrationLockExpiry = new Date();
-    registrationLockExpiry.setDate(registrationLockExpiry.getDate() + 30);
+    const registrationLockExpiry = dateUtils.addTime(
+      dateUtils.getCurrentDate(),
+      30,
+      "days"
+    );
 
     req.body.registrationLockExpiry = registrationLockExpiry;
     req.body.isLocked = true;
@@ -1089,7 +1111,7 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
         let isLocked = false;
 
         if (hasLockableStatus) {
-          registrationLockExpiry = new Date();
+          registrationLockExpiry = dateUtils.getCurrentDate();
           registrationLockExpiry.setDate(
             registrationLockExpiry.getDate() + LINEUP_LOCK_DAYS
           );
@@ -1100,7 +1122,7 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
         const callStatusHistory = [
           {
             status: callStatus,
-            date: Date.now(),
+            date: dateUtils.getCurrentDate(),
             employee: req.employee._id,
           },
         ];
@@ -1109,7 +1131,7 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
         const registrationHistory = [
           {
             registeredBy: req.employee._id,
-            registrationDate: new Date(),
+            registrationDate: dateUtils.getCurrentDate(),
             status: "Active",
           },
         ];
@@ -1142,14 +1164,14 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
             {
               duration: "0",
               employee: req.employee._id,
-              date: Date.now(),
+              date: dateUtils.getCurrentDate(),
               summary: "Imported from Excel",
             },
           ],
           remarks: [
             {
               remark: "Created via Excel import",
-              date: Date.now(),
+              date: dateUtils.getCurrentDate(),
               employee: req.employee._id,
             },
           ],

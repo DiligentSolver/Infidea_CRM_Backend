@@ -8,6 +8,7 @@ const Leave = require("../models/leaveModel");
 const Attendance = require("../models/attendanceModel");
 const mongoose = require("mongoose");
 const { generateAndSendDailyReport } = require("../utils/dailyReportGenerator");
+const dateUtils = require("../utils/dateUtils");
 
 /**
  * Format minutes into hours and minutes string
@@ -215,10 +216,8 @@ const getTodayOverview = handleAsync(async (req, res) => {
 
   try {
     // Calculate today's date range
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const today = dateUtils.startOfDay();
+    const tomorrow = dateUtils.addTime(today, 1, "days");
 
     // Get today's calls (using candidates)
     const todayCalls = await Candidate.countDocuments({
@@ -241,6 +240,7 @@ const getTodayOverview = handleAsync(async (req, res) => {
         $elemMatch: {
           duration: { $gt: 0 },
           employee: employeeId,
+          date: { $gte: today, $lt: tomorrow },
         },
       },
     });
@@ -296,10 +296,8 @@ const getCompleteAnalytics = handleAsync(async (req, res) => {
 
   try {
     // Calculate today's date range
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const today = dateUtils.startOfDay();
+    const tomorrow = dateUtils.addTime(today, 1, "days");
 
     // Overall statistics
     const totalCalls = await Candidate.countDocuments({
@@ -380,6 +378,7 @@ const getCompleteAnalytics = handleAsync(async (req, res) => {
         $elemMatch: {
           duration: { $gt: 0 },
           employee: employeeId,
+          date: { $gte: today, $lt: tomorrow },
         },
       },
     });
@@ -447,10 +446,8 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
 
   try {
     // Calculate time ranges
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const today = dateUtils.startOfDay();
+    const tomorrow = dateUtils.addTime(today, 1, "days");
 
     // Start of week (Sunday)
     const startOfWeek = new Date(today);
@@ -610,6 +607,13 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
                 registeredBy: employeeId,
               },
             },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: today, $lt: tomorrow },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
         ],
       }).lean(),
@@ -636,6 +640,13 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
           {
             lastRegisteredBy: employeeId,
             updatedAt: { $gte: yesterday, $lt: today },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: yesterday, $lt: today },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
           {
             registrationHistory: {
@@ -644,14 +655,15 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
                 registeredBy: employeeId,
               },
             },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: yesterday, $lt: today },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
         ],
-        callDurationHistory: {
-          $elemMatch: {
-            duration: { $gt: 0 },
-            employee: employeeId,
-          },
-        },
       }).lean(),
 
       // Week data
@@ -676,6 +688,13 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
           {
             lastRegisteredBy: employeeId,
             updatedAt: { $gte: startOfWeek, $lt: tomorrow },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: startOfWeek, $lt: tomorrow },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
           {
             registrationHistory: {
@@ -684,14 +703,15 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
                 registeredBy: employeeId,
               },
             },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: startOfWeek, $lt: tomorrow },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
         ],
-        callDurationHistory: {
-          $elemMatch: {
-            duration: { $gt: 0 },
-            employee: employeeId,
-          },
-        },
       }).lean(),
 
       // Previous week data for trend calculation
@@ -716,6 +736,13 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
           {
             lastRegisteredBy: employeeId,
             updatedAt: { $gte: previousWeekStart, $lt: startOfWeek },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: previousWeekStart, $lt: startOfWeek },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
           {
             registrationHistory: {
@@ -724,14 +751,15 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
                 registeredBy: employeeId,
               },
             },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: previousWeekStart, $lt: startOfWeek },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
         ],
-        callDurationHistory: {
-          $elemMatch: {
-            duration: { $gt: 0 },
-            employee: employeeId,
-          },
-        },
       }).lean(),
 
       // Month data
@@ -756,6 +784,13 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
           {
             lastRegisteredBy: employeeId,
             updatedAt: { $gte: startOfMonth, $lt: tomorrow },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: startOfMonth, $lt: tomorrow },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
           {
             registrationHistory: {
@@ -764,14 +799,15 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
                 registeredBy: employeeId,
               },
             },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: startOfMonth, $lt: tomorrow },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
         ],
-        callDurationHistory: {
-          $elemMatch: {
-            duration: { $gt: 0 },
-            employee: employeeId,
-          },
-        },
       }).lean(),
 
       // Previous month data for trend calculation
@@ -796,6 +832,13 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
           {
             lastRegisteredBy: employeeId,
             updatedAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: previousMonthStart, $lt: previousMonthEnd },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
           {
             registrationHistory: {
@@ -807,14 +850,15 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
                 registeredBy: employeeId,
               },
             },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: previousMonthStart, $lt: previousMonthEnd },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
         ],
-        callDurationHistory: {
-          $elemMatch: {
-            duration: { $gt: 0 },
-            employee: employeeId,
-          },
-        },
       }).lean(),
 
       // Year data
@@ -839,6 +883,13 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
           {
             lastRegisteredBy: employeeId,
             updatedAt: { $gte: startOfYear, $lt: tomorrow },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: startOfYear, $lt: tomorrow },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
           {
             registrationHistory: {
@@ -847,14 +898,15 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
                 registeredBy: employeeId,
               },
             },
+            callDurationHistory: {
+              $elemMatch: {
+                date: { $gte: startOfYear, $lt: tomorrow },
+                duration: { $gt: 0 },
+                employee: employeeId,
+              },
+            },
           },
         ],
-        callDurationHistory: {
-          $elemMatch: {
-            duration: { $gt: 0 },
-            employee: employeeId,
-          },
-        },
       }).lean(),
 
       // Get all employees for team averages
@@ -1323,10 +1375,8 @@ const getIncentivesData = handleAsync(async (req, res) => {
 
   try {
     // Calculate time ranges
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const today = dateUtils.startOfDay();
+    const tomorrow = dateUtils.addTime(today, 1, "days");
 
     // Start of week (Sunday)
     const startOfWeek = new Date(today);

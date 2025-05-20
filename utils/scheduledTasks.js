@@ -2,6 +2,7 @@ const cron = require("node-cron");
 const Activity = require("../models/activityModel");
 const Employee = require("../models/employeeModel");
 const { closeAllActiveActivities } = require("./activityUtils");
+const { getCurrentDate, addTime } = require("./dateUtils");
 
 /**
  * Scheduled task to close all active activities at 9 PM every day
@@ -44,8 +45,7 @@ const cleanupOldNotifications = async () => {
     const Notification = require("../models/notificationModel");
 
     // Calculate date 30 days ago
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgo = addTime(getCurrentDate(), -30, "days");
 
     // Delete notifications older than 30 days
     const result = await Notification.deleteMany({

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const dateUtils = require("../utils/dateUtils");
 
 const notificationSchema = new mongoose.Schema(
   {
@@ -42,9 +43,8 @@ const notificationSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
       default: function () {
-        // Set expiration to 30 days from now
-        const now = new Date();
-        return new Date(now.setDate(now.getDate() + 30));
+        // Set expiration to 30 days from now using dateUtils
+        return dateUtils.addTime(dateUtils.getCurrentDate(), 30, "days");
       },
     },
   },

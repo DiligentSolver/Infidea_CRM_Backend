@@ -30,6 +30,8 @@ const {
 } = require("./utils/scheduledTasks");
 const { initScheduler } = require("./utils/scheduler");
 const { scheduleDailyReport } = require("./utils/dailyReportGenerator");
+const moment = require("moment-timezone");
+const { IST_TIMEZONE } = require("./utils/dateUtils");
 
 dotenv.config();
 connectDB();
@@ -37,7 +39,10 @@ connectDB();
 // Initialize scheduled tasks
 scheduleActivityClosing();
 initScheduler(); // Initialize candidate lock scheduler
-scheduleDailyReport(); // Initialize daily report scheduler at 8 PM IST
+scheduleDailyReport(); // Initialize daily report scheduler at 8 PM
+
+// Set default timezone to Indian Standard Time globally
+moment.tz.setDefault(IST_TIMEZONE);
 
 const http = require("http");
 const { Server } = require("socket.io");

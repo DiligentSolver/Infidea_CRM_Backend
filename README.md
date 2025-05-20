@@ -51,6 +51,22 @@ The attendance system leverages the existing Leave model rather than creating a 
 2. If no approved leave exists, marks the employee as present
 3. Updates the attendance calendar with the appropriate status
 
+## Timezone Standardization
+
+To ensure consistent operation regardless of server location, all dates and times in the application use Indian Standard Time (IST). Key points:
+
+1. **Global Timezone Standard**: The application uses IST (Asia/Kolkata) for all date and time operations.
+2. **Date Utility**: A centralized `dateUtils` module must be used instead of direct `new Date()` calls.
+3. **Scheduled Tasks**: All cron jobs and scheduled tasks convert IST time to server time automatically.
+4. **Documentation**: Detailed guidelines are available in `/docs/date-time-usage.md`.
+
+This standardization ensures that:
+
+- All timestamps are consistent with Indian operations
+- Reports show the correct times
+- Scheduled tasks run at appropriate times relative to the Indian business day
+- Application behavior is consistent across deployments in any region
+
 ## Candidate Locking System
 
 The CRM implements a candidate locking system that works as follows:
