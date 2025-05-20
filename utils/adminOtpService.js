@@ -1,6 +1,6 @@
 const sendEmail = require("./emailService");
 const { generateOTP } = require("./otpGenerator");
-const adminLoginOtpTemplate = require("./emailTemplates/adminLoginOtpTemplate");
+const loginVerificationOtpTemplate = require("./emailTemplates/loginVerificationOtpTemplate");
 const adminLogoutNotificationTemplate = require("./emailTemplates/adminLogoutNotificationTemplate");
 const { client, connectRedis } = require("./redisClient");
 
@@ -27,8 +27,26 @@ const sendLoginVerificationOTP = async (employee) => {
   const adminEmail = process.env.ADMIN_EMAIL;
   const supervisorEmail = process.env.SUPERVISOR_EMAIL;
 
+  // Prepare user data for the template
+  const userData = {
+    name: "Admin",
+    location: employee.lastLoginLocation || "Unknown location",
+    device: employee.lastLoginDevice || "Unknown device",
+    time: currentTime,
+    employeeDetails: {
+      name: employee.name?.en || employee.name || "N/A",
+      email: employee.email || "N/A",
+      mobile: employee.mobile || "N/A",
+      employeeId: employee._id || "N/A",
+    },
+  };
+
   // Create email content with HTML template
-  const emailHtml = adminLoginOtpTemplate(employee, otp, currentTime);
+  const emailHtml = loginVerificationOtpTemplate(
+    otp,
+    parseInt(process.env.OTP_EXPIRY || 10),
+    userData
+  );
 
   // Construct list of recipients
   const recipients = [superAdminEmail, adminEmail, supervisorEmail].filter(

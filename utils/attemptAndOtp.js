@@ -3,7 +3,6 @@ const { generateOTP } = require("../utils/otpGenerator");
 const sendEmail = require("../utils/emailService");
 const { sendOTP } = require("../utils/sendOtp");
 const bcrypt = require("bcryptjs");
-const { sendFastOTP } = require("../utils/fast2SmsOtp");
 const genericOtpTemplate = require("./emailTemplates/genericOtpTemplate");
 
 // Utility function to handle async errors
@@ -134,8 +133,6 @@ const sendOtpResponse = async (mobile, res) => {
     sendOTP(mobile, otp);
 
     const hashedOtp = await bcrypt.hash(otp, 10);
-
-    // sendFastOTP(mobile, otp);
 
     await client.setEx(
       `otp:${mobile}`,

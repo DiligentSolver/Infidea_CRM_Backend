@@ -3,6 +3,7 @@ const Activity = require("../models/activityModel");
 const Employee = require("../models/employeeModel");
 const { closeAllActiveActivities } = require("./activityUtils");
 const { getCurrentDate, addTime } = require("./dateUtils");
+const { blacklistAllTokens } = require("./tokenBlacklist");
 
 /**
  * Scheduled task to close all active activities at 9 PM every day
@@ -38,6 +39,30 @@ const scheduleActivityClosing = () => {
   console.log("Scheduled task registered: Auto-closing activities at 9 PM");
 };
 
+/**
+ * Scheduled task to invalidate all tokens at 9 PM every day
+ * This forces all users to log out
+ */
+const scheduleGlobalLogout = () => {
+  // Run at 9 PM (21:00) every day, right after closing activities
+  cron.schedule("1 21 * * *", async () => {
+    try {
+      console.log("Running scheduled task: Global logout at 9 PM");
+
+      // Activate global token blacklist
+      await blacklistAllTokens();
+
+      console.log(
+        "Global logout completed - all users will be logged out until midnight"
+      );
+    } catch (error) {
+      console.error("Error in scheduled global logout task:", error);
+    }
+  });
+
+  console.log("Scheduled task registered: Global logout at 9 PM");
+};
+
 // Function to clean up old notifications (older than 30 days)
 const cleanupOldNotifications = async () => {
   try {
@@ -69,4 +94,5 @@ const scheduleNotificationCleanup = () => {
 module.exports = {
   scheduleActivityClosing,
   scheduleNotificationCleanup,
+  scheduleGlobalLogout,
 };

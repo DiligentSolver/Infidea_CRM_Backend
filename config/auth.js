@@ -32,7 +32,7 @@ const signInToken = (user, expiresIn) => {
     },
     process.env.JWT_SECRET,
     {
-      expiresIn: expiresIn || "7d",
+      expiresIn: expiresIn || "12h",
     }
   );
 };

@@ -1,5 +1,9 @@
 const jwt = require("jsonwebtoken");
 const Employee = require("../models/employeeModel");
+const {
+  isTokenBlacklisted,
+  isGlobalBlacklistActive,
+} = require("../utils/tokenBlacklist");
 
 // Authentication middleware
 exports.authenticateToken = async (req, res, next) => {
@@ -22,6 +26,21 @@ exports.authenticateToken = async (req, res, next) => {
       });
     }
 
+    // Check if token is blacklisted (specifically blacklisted or global blacklist is active)
+    const [isBlacklisted, isGlobalBlacklist] = await Promise.all([
+      isTokenBlacklisted(token),
+      isGlobalBlacklistActive(),
+    ]);
+
+    if (isBlacklisted || isGlobalBlacklist) {
+      return res.status(401).json({
+        success: false,
+        message: isGlobalBlacklist
+          ? "Unauthorized: System has been logged out for the day. Please login again tomorrow."
+          : "Unauthorized: Token has been invalidated. Please login again.",
+      });
+    }
+
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
@@ -37,6 +56,8 @@ exports.authenticateToken = async (req, res, next) => {
 
     // Set user info in request
     req.user = user;
+    // Store token in request for possible blacklisting later
+    req.token = token;
     next();
   } catch (err) {
     console.error("Authentication error:", err);
