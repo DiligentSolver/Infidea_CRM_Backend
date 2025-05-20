@@ -1,9 +1,5 @@
 const jwt = require("jsonwebtoken");
 const Employee = require("../models/employeeModel");
-const {
-  isTokenBlacklisted,
-  isGlobalBlacklistActive,
-} = require("../utils/tokenBlacklist");
 
 // Middleware to verify employee token
 const authMiddleware = async (req, res, next) => {
@@ -20,27 +16,12 @@ const authMiddleware = async (req, res, next) => {
       return res.status(401).json({ message: "Unauthorized: Token missing" });
     }
 
-    // Check if token is blacklisted (specifically blacklisted or global blacklist is active)
-    const [isBlacklisted, isGlobalBlacklist] = await Promise.all([
-      isTokenBlacklisted(token),
-      isGlobalBlacklistActive(),
-    ]);
-
-    if (isBlacklisted || isGlobalBlacklist) {
-      return res.status(401).json({
-        message: isGlobalBlacklist
-          ? "Unauthorized: System has been logged out for the day. Please login again tomorrow."
-          : "Unauthorized: Token has been invalidated. Please login again.",
-      });
-    }
-
     //Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const employee = await Employee.findById(decoded._id).select(
       "_id userRole"
     );
     req.employee = employee;
-    req.token = token; // Store token in request for possible blacklisting later
     next();
   } catch (err) {
     res.status(401).json({ message: "Unauthorized: Invalid or expired token" });

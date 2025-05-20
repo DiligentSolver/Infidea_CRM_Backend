@@ -26,7 +26,7 @@ const fileUpload = require("express-fileupload");
 const path = require("path");
 const {
   scheduleActivityClosing,
-  scheduleGlobalLogout,
+  scheduleNotificationCleanup,
 } = require("./utils/scheduledTasks");
 const { initScheduler } = require("./utils/scheduler");
 const { scheduleDailyReport } = require("./utils/dailyReportGenerator");
@@ -38,7 +38,6 @@ connectDB();
 
 // Initialize scheduled tasks
 scheduleActivityClosing();
-scheduleGlobalLogout(); // Initialize the auto-logout at 9 PM
 initScheduler(); // Initialize candidate lock scheduler
 scheduleDailyReport(); // Initialize daily report scheduler at 8 PM
 

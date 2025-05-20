@@ -22,7 +22,6 @@ const {
 } = require("../utils/attemptAndOtp");
 
 const dateUtils = require("../utils/dateUtils");
-const { blacklistToken } = require("../utils/tokenBlacklist");
 
 // Send Employee OTP
 exports.sendEmployeeOtp = handleAsync(async (req, res) => {
@@ -228,8 +227,8 @@ exports.verifyLoginAdminOtp = handleAsync(async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
 
-  // Generate JWT token with 12 hour expiry
-  const token = signInToken(user, "12h");
+  // Generate JWT token
+  const token = signInToken(user, "7d");
 
   // Close only "On Desk" active activities
   await Activity.updateMany(
@@ -494,12 +493,6 @@ exports.logoutEmployee = handleAsync(async (req, res) => {
     });
 
     await logoutActivity.save();
-
-    // Blacklist the current token
-    const token = req.token;
-    if (token) {
-      await blacklistToken(token);
-    }
 
     // Send logout notification to admins (don't wait for it to complete)
     sendLogoutNotification(employee)

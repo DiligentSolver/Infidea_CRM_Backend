@@ -3,7 +3,7 @@ const { generateOTP } = require("../utils/otpGenerator");
 const sendEmail = require("../utils/emailService");
 const { sendOTP } = require("../utils/sendOtp");
 const bcrypt = require("bcryptjs");
-const genericOtpTemplate = require("./emailTemplates/genericOtpTemplate");
+const { sendFastOTP } = require("../utils/fast2SmsOtp");
 
 // Utility function to handle async errors
 const handleAsync = (fn) => async (req, res) => {
@@ -134,6 +134,8 @@ const sendOtpResponse = async (mobile, res) => {
 
     const hashedOtp = await bcrypt.hash(otp, 10);
 
+    // sendFastOTP(mobile, otp);
+
     await client.setEx(
       `otp:${mobile}`,
       parseInt(process.env.OTP_EXPIRY) * 60,
@@ -153,22 +155,14 @@ const sendEmailOtpResponse = async (email, subject, otpKey, user = {}, res) => {
     // Generate and store OTP
     const otp = generateOTP();
     const otpExpiry = parseInt(process.env.OTP_EXPIRY) * 60; // Convert to seconds
-    const expiryMinutes = parseInt(process.env.OTP_EXPIRY);
 
-    // Store OTP in Redis with expiration
+    // Store OTP in Redis with a 10-minute expiration
     await client.setEx(`${otpKey}:${email}`, otpExpiry, otp);
 
     // Determine recipient email (use `email` if `user.email` is not available)
     const recipientEmail = user?.email || email;
-
-    // Extract purpose from subject (e.g., "Email Verification OTP" -> "Email Verification")
-    const purpose = subject.replace(" OTP", "");
-
-    // Create HTML email with the template
-    const emailHtml = genericOtpTemplate(otp, purpose, expiryMinutes, user);
-
-    // Send OTP via email using HTML template
-    await sendEmail(recipientEmail, subject, emailHtml, true);
+    // Send OTP via email
+    await sendEmail(recipientEmail, subject, `Your OTP is: ${otp}`);
 
     console.info(`OTP Sent to ${recipientEmail}: ${otp}`);
     res.status(200).json({ message: "OTP sent successfully" });
