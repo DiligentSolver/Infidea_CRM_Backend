@@ -5,6 +5,56 @@ const adminLogoutNotificationTemplate = require("./emailTemplates/adminLogoutNot
 const { client, connectRedis } = require("./redisClient");
 const { formatDate, toLocaleTimeString } = require("./dateUtils");
 const geoip = require("geoip-lite");
+const axios = require("axios");
+
+/**
+ * Get location information from IP using DB-IP API
+ * @param {String} ip - IP address
+ * @returns {Promise<String>} - Location string
+ */
+const getLocationFromIp = async (ip) => {
+  // Handle localhost IPs
+  if (ip === "::1" || ip === "127.0.0.1" || ip.includes("localhost")) {
+    return "Internal Access";
+  }
+
+  try {
+    // Try DB-IP API first (free tier, limited to 1000 requests per day)
+    const response = await axios.get(`https://api.db-ip.com/v2/free/${ip}`);
+
+    if (response.data && response.data.city) {
+      // Build location string with as much detail as available
+      const locationParts = [];
+
+      if (response.data.city) locationParts.push(response.data.city);
+      if (response.data.stateProv) locationParts.push(response.data.stateProv);
+      if (response.data.countryName)
+        locationParts.push(response.data.countryName);
+
+      return locationParts.join(", ");
+    }
+  } catch (error) {
+    console.error("Error using DB-IP API for location lookup:", error.message);
+    // Fall back to geoip-lite if DB-IP fails
+    try {
+      const geo = geoip.lookup(ip);
+      if (geo) {
+        const locationParts = [];
+        if (geo.city) locationParts.push(geo.city);
+        if (geo.region) locationParts.push(geo.region);
+        if (geo.country) locationParts.push(geo.country);
+
+        return locationParts.length > 0
+          ? locationParts.join(", ")
+          : "Unknown Location";
+      }
+    } catch (geoipError) {
+      console.error("Error using geoip-lite fallback:", geoipError.message);
+    }
+  }
+
+  return "Unknown Location";
+};
 
 /**
  * Send login OTP to admin emails for employee verification
@@ -30,31 +80,9 @@ const sendLoginVerificationOTP = async (employee, ipAddress) => {
 
   // Handle IP address and location
   let displayIp = ipAddress || "Unknown";
-  let locationInfo = "Unknown";
 
-  // Check if it's a localhost IP
-  if (
-    ipAddress &&
-    (ipAddress === "::1" ||
-      ipAddress === "127.0.0.1" ||
-      ipAddress.includes("localhost"))
-  ) {
-    displayIp = "Local Network";
-    locationInfo = "Internal Access";
-  } else if (ipAddress && ipAddress !== "Unknown") {
-    // For non-localhost IPs, try to get location
-    try {
-      const geo = geoip.lookup(ipAddress);
-      if (geo) {
-        locationInfo = `${geo.city || "Unknown City"}, ${geo.region || ""} ${
-          geo.country || "Unknown Country"
-        }`;
-        locationInfo = locationInfo.trim().replace(/\s+/g, " ");
-      }
-    } catch (error) {
-      console.error("Error looking up IP location:", error);
-    }
-  }
+  // Get location using the new DB-IP based function
+  const locationInfo = await getLocationFromIp(ipAddress);
 
   // Get admin emails from env variables
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
@@ -127,31 +155,9 @@ const sendLogoutNotification = async (employee, ipAddress) => {
 
   // Handle IP address and location
   let displayIp = ipAddress || "Unknown";
-  let locationInfo = "Unknown";
 
-  // Check if it's a localhost IP
-  if (
-    ipAddress &&
-    (ipAddress === "::1" ||
-      ipAddress === "127.0.0.1" ||
-      ipAddress.includes("localhost"))
-  ) {
-    displayIp = "Local Network";
-    locationInfo = "Internal Access";
-  } else if (ipAddress && ipAddress !== "Unknown") {
-    // For non-localhost IPs, try to get location
-    try {
-      const geo = geoip.lookup(ipAddress);
-      if (geo) {
-        locationInfo = `${geo.city || "Unknown City"}, ${geo.region || ""} ${
-          geo.country || "Unknown Country"
-        }`;
-        locationInfo = locationInfo.trim().replace(/\s+/g, " ");
-      }
-    } catch (error) {
-      console.error("Error looking up IP location:", error);
-    }
-  }
+  // Get location using the new DB-IP based function
+  const locationInfo = await getLocationFromIp(ipAddress);
 
   // Get admin emails from env variables
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
