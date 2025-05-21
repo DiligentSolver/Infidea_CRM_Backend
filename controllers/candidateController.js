@@ -8,10 +8,13 @@ const {
 const {
   checkCandidateLock,
   LINEUP_LOCK_DAYS,
+  hasActiveJoining,
+  JOINING_LOCK_DAYS,
 } = require("../utils/candidateLockManager");
 const BulkUploadCount = require("../models/bulkUploadCountModel");
 const mongoose = require("mongoose");
 const dateUtils = require("../utils/dateUtils");
+const Joining = require("../models/joiningModel");
 
 // Check duplicity by mobile number
 exports.checkDuplicity = handleAsync(async (req, res, next) => {
@@ -341,6 +344,16 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
     });
   }
 
+  // Check if number exists in joining with "Joining Details Received" status
+  const joiningActive = await hasActiveJoining(mobileNo);
+
+  if (joiningActive) {
+    return res.status(409).json({
+      status: "fail",
+      message: "This number is locked due to an active joining record",
+    });
+  }
+
   // Initialize callStatusHistory
   const callStatusHistory = [];
   callStatusHistory.push({
@@ -522,74 +535,87 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
   const employee = await Employee.find();
 
   // Add registration status info for each candidate
-  const candidatesWithStatus = candidates.map((candidate) => {
-    const isLockedByMe =
-      candidate.isLocked &&
-      candidate.lastRegisteredBy &&
-      candidate.lastRegisteredBy._id &&
-      candidate.lastRegisteredBy._id.toString() === req.employee._id.toString();
+  const candidatesWithStatus = await Promise.all(
+    candidates.map(async (candidate) => {
+      const isLockedByMe =
+        candidate.isLocked &&
+        candidate.lastRegisteredBy &&
+        candidate.lastRegisteredBy._id &&
+        candidate.lastRegisteredBy._id.toString() ===
+          req.employee._id.toString();
 
-    const isLastRegisteredByMe =
-      candidate.lastRegisteredBy &&
-      candidate.lastRegisteredBy._id &&
-      candidate.lastRegisteredBy._id.toString() === req.employee._id.toString();
+      const isLastRegisteredByMe =
+        candidate.lastRegisteredBy &&
+        candidate.lastRegisteredBy._id &&
+        candidate.lastRegisteredBy._id.toString() ===
+          req.employee._id.toString();
 
-    const lastRegisteredByName = employee.find(
-      (emp) => emp._id.toString() === candidate.lastRegisteredBy._id.toString()
-    ).name.en;
+      const lastRegisteredByName = employee.find(
+        (emp) =>
+          emp._id.toString() === candidate.lastRegisteredBy._id.toString()
+      ).name.en;
 
-    let remainingDays = 0;
+      let remainingDays = 0;
 
-    let remainingTime = null;
+      let remainingTime = null;
 
-    if (
-      candidate.isLocked &&
-      candidate.registrationLockExpiry > dateUtils.getCurrentDate()
-    ) {
-      const diffMs =
-        candidate.registrationLockExpiry - dateUtils.getCurrentDate();
-      remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      if (
+        candidate.isLocked &&
+        candidate.registrationLockExpiry > dateUtils.getCurrentDate()
+      ) {
+        const diffMs =
+          candidate.registrationLockExpiry - dateUtils.getCurrentDate();
+        remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
-      if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
-        const hours = Math.floor(diffMs / (1000 * 60 * 60));
-        const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-        remainingTime = `${hours}h ${minutes}m`;
+        if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
+          const hours = Math.floor(diffMs / (1000 * 60 * 60));
+          const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+          remainingTime = `${hours}h ${minutes}m`;
+        }
       }
-    }
 
-    // Filter call duration history to only include the current employee's entries
-    let employeeCallHistory = [];
-    if (
-      candidate.callDurationHistory &&
-      candidate.callDurationHistory.length > 0
-    ) {
-      employeeCallHistory = candidate.callDurationHistory.filter(
-        (record) =>
-          record.employee &&
-          record.employee.toString() === req.employee._id.toString()
-      );
-    }
+      // Filter call duration history to only include the current employee's entries
+      let employeeCallHistory = [];
+      if (
+        candidate.callDurationHistory &&
+        candidate.callDurationHistory.length > 0
+      ) {
+        employeeCallHistory = candidate.callDurationHistory.filter(
+          (record) =>
+            record.employee &&
+            record.employee.toString() === req.employee._id.toString()
+        );
+      }
 
-    let employeeRemarksHistory = [];
-    if (candidate.remarks && candidate.remarks.length > 0) {
-      employeeRemarksHistory = candidate.remarks.filter(
-        (remark) =>
-          remark.employee &&
-          remark.employee.toString() === req.employee._id.toString()
-      );
-    }
+      let employeeRemarksHistory = [];
+      if (candidate.remarks && candidate.remarks.length > 0) {
+        employeeRemarksHistory = candidate.remarks.filter(
+          (remark) =>
+            remark.employee &&
+            remark.employee.toString() === req.employee._id.toString()
+        );
+      }
 
-    return {
-      ...candidate._doc,
-      isLockedByMe,
-      isLastRegisteredByMe,
-      lastRegisteredByName,
-      remainingDays,
-      remainingTime,
-      employeeCallHistory,
-      employeeRemarksHistory,
-    };
-  });
+      // Check if candidate has an active joining
+      const joiningActive = hasActiveJoining(candidate.mobileNo);
+
+      // A candidate is not editable if it has an active joining
+      const editable = !joiningActive;
+
+      return {
+        ...candidate._doc,
+        isLockedByMe,
+        isLastRegisteredByMe,
+        lastRegisteredByName,
+        remainingDays,
+        remainingTime,
+        employeeCallHistory,
+        employeeRemarksHistory,
+        editable,
+        hasActiveJoining: joiningActive,
+      };
+    })
+  );
 
   res.status(200).json({
     status: "success",
@@ -611,10 +637,22 @@ exports.getCandidate = handleAsync(async (req, res, next) => {
       .json({ status: "fail", message: "No candidate found with that ID" });
   }
 
+  // Check if candidate has an active joining
+  const joiningActive = await hasActiveJoining(candidate.mobileNo);
+
+  // A candidate is not editable if it has an active joining
+  const editable = !joiningActive;
+
+  const candidateData = {
+    ...candidate.toObject(),
+    editable,
+    hasActiveJoining: joiningActive,
+  };
+
   res.status(200).json({
     status: "success",
     data: {
-      candidate,
+      candidate: candidateData,
     },
   });
 });
@@ -659,6 +697,33 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
   // First fetch the existing candidate to compare call duration
   const existingCandidate = await Candidate.findById(req.params.candidateId);
 
+  if (!existingCandidate) {
+    return res.status(404).json({
+      status: "fail",
+      message: "No candidate found with that ID",
+    });
+  }
+
+  // Check for joining lock - if candidate has a joining with status "Joining Details Received", prevent edits
+  const joiningActive = await hasActiveJoining(existingCandidate.mobileNo);
+
+  if (joiningActive) {
+    // Calculate 90-day lock expiry date for display purposes
+    const lockExpiryDate = new Date();
+    lockExpiryDate.setDate(lockExpiryDate.getDate() + JOINING_LOCK_DAYS);
+
+    return res.status(403).json({
+      status: "fail",
+      message: "This candidate is locked due to an active joining record",
+      lockType: "joining",
+      lockExpiryDays: JOINING_LOCK_DAYS,
+      lockExpiryDate: lockExpiryDate,
+      editable: false,
+      hasActiveJoining: true,
+    });
+  }
+
+  // Check if candidate is locked by another employee
   const isLocked =
     existingCandidate.isLocked &&
     existingCandidate.registrationLockExpiry &&
@@ -666,187 +731,123 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
 
   const isUnderMe =
     existingCandidate.lastRegisteredBy &&
-    existingCandidate.lastRegisteredBy._id &&
-    existingCandidate.lastRegisteredBy._id.toString() ===
+    existingCandidate.lastRegisteredBy.toString() ===
       req.employee._id.toString();
 
+  // Don't allow edits if locked by someone else
   if (isLocked && !isUnderMe) {
-    return res.status(400).json({
+    return res.status(403).json({
       status: "fail",
-      message: "Candidate is locked and cannot be updated by another employee.",
+      message: "Candidate is locked by another employee",
+      lockExpiryDate: existingCandidate.registrationLockExpiry,
     });
   }
 
-  if (!existingCandidate) {
-    return res
-      .status(404)
-      .json({ status: "fail", message: "No candidate found with that ID" });
-  }
+  // Original update logic continues below
+  // Check if there's a new call duration entry
+  if (req.body.callDuration) {
+    const newCallDuration = {
+      duration: req.body.callDuration,
+      employee: req.employee._id,
+      date: dateUtils.getCurrentDate(),
+      summary: req.body.callSummary || "",
+    };
 
-  // Check if call duration is being updated
-  if (req.body.callDuration !== undefined) {
-    const existingDuration = parseInt(existingCandidate.callDuration || "0");
-    const newDuration = parseInt(req.body.callDuration || "0");
-
-    // Only add to history if there's an actual change in duration or if there's a new summary
-    const shouldAddToHistory =
-      newDuration !== existingDuration ||
-      (req.body.callSummary && req.body.callSummary.trim() !== "");
-
-    if (shouldAddToHistory) {
-      // Push to call duration history array
-      existingCandidate.callDurationHistory =
-        existingCandidate.callDurationHistory || [];
-      existingCandidate.callDurationHistory.push({
-        duration: req.body.callDuration,
-        employee: req.employee._id,
-        date: dateUtils.getCurrentDate(),
-        summary: req.body.callSummary || "Call update",
-      });
+    // Add the new duration to history
+    if (!existingCandidate.callDurationHistory) {
+      existingCandidate.callDurationHistory = [];
     }
+    existingCandidate.callDurationHistory.push(newCallDuration);
+    req.body.callDurationHistory = existingCandidate.callDurationHistory;
   }
 
-  // Check if call status is being updated
+  // Check for call status change
   if (
     req.body.callStatus &&
-    (!existingCandidate.callStatus ||
-      req.body.callStatus !== existingCandidate.callStatus)
+    req.body.callStatus !== existingCandidate.callStatus
   ) {
-    // Initialize call status history array if it doesn't exist
-    existingCandidate.callStatusHistory =
-      existingCandidate.callStatusHistory || [];
-
-    // Add new call status to history
-    existingCandidate.callStatusHistory.push({
+    const newStatusEntry = {
       status: req.body.callStatus,
       date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
-    });
+    };
+
+    // Add the new status entry to history
+    if (!existingCandidate.callStatusHistory) {
+      existingCandidate.callStatusHistory = [];
+    }
+    existingCandidate.callStatusHistory.push(newStatusEntry);
+    req.body.callStatusHistory = existingCandidate.callStatusHistory;
   }
 
-  // Check if lineup details are being updated
-  if (
-    req.body.callStatus &&
-    req.body.callStatus.toLowerCase() === "lineup" &&
-    (req.body.lineupCompany ||
-      req.body.customLineupCompany ||
-      req.body.lineupProcess ||
-      req.body.customLineupProcess ||
-      req.body.lineupDate ||
-      req.body.interviewDate ||
-      req.body.remarks)
-  ) {
-    // Initialize lineup remarks history array if it doesn't exist
-    existingCandidate.lineupRemarksHistory =
-      existingCandidate.lineupRemarksHistory || [];
-
-    // Add new lineup remarks to history
-    existingCandidate.lineupRemarksHistory.push({
-      remark: req.body.remarks || "Lineup details updated",
+  // Check for new remarks
+  if (req.body.remarks) {
+    const newRemark = {
+      remark: req.body.remarks,
       date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
-      company: req.body.lineupCompany || req.body.customLineupCompany,
-      process: req.body.lineupProcess || req.body.customLineupProcess,
+    };
+
+    // Add to remarks history
+    if (!existingCandidate.remarks) {
+      existingCandidate.remarks = [];
+    }
+    existingCandidate.remarks.push(newRemark);
+    req.body.remarks = existingCandidate.remarks;
+  }
+
+  // Handle lineup remarks if provided
+  if (
+    req.body.lineupRemarks &&
+    req.body.lineupCompany &&
+    req.body.lineupProcess &&
+    req.body.lineupDate &&
+    req.body.interviewDate
+  ) {
+    if (!existingCandidate.lineupRemarksHistory) {
+      existingCandidate.lineupRemarksHistory = [];
+    }
+
+    existingCandidate.lineupRemarksHistory.push({
+      remark: req.body.lineupRemarks,
+      date: dateUtils.getCurrentDate(),
+      employee: req.employee._id,
+      company: req.body.lineupCompany,
+      process: req.body.lineupProcess,
       lineupDate: new Date(req.body.lineupDate),
       interviewDate: new Date(req.body.interviewDate),
     });
+
+    req.body.lineupRemarksHistory = existingCandidate.lineupRemarksHistory;
   }
 
-  // Check if walkin details are being updated
-  if (
-    req.body.callStatus &&
-    req.body.callStatus.toLowerCase() === "walkin at infidea" &&
-    (req.body.walkinDate || req.body.remarks)
-  ) {
-    // Initialize walkin remarks history array if it doesn't exist
-    existingCandidate.walkinRemarksHistory =
-      existingCandidate.walkinRemarksHistory || [];
+  // Handle walkin remarks if provided
+  if (req.body.walkinRemarks && req.body.walkinDate) {
+    if (!existingCandidate.walkinRemarksHistory) {
+      existingCandidate.walkinRemarksHistory = [];
+    }
 
-    // Add new walkin remarks to history
     existingCandidate.walkinRemarksHistory.push({
-      remark: req.body.remarks || "Walkin details updated",
+      remark: req.body.walkinRemarks,
       date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
       walkinDate: new Date(req.body.walkinDate),
     });
+
+    req.body.walkinRemarksHistory = existingCandidate.walkinRemarksHistory;
   }
 
-  // Check if the candidate needs to be locked (only for first lineup/walkin and only if not already locked)
+  // Check if moving to a lockable status (Lineup or Walkin at Infidea)
   const isMovingToLockableStatus =
     req.body.callStatus &&
     (req.body.callStatus.toLowerCase() === "lineup" ||
       req.body.callStatus.toLowerCase() === "walkin at infidea");
 
-  const currentStatus = existingCandidate.callStatus
-    ? existingCandidate.callStatus.toLowerCase()
-    : "";
+  // Check if was already a lockable status
   const wasAlreadyLockableStatus =
-    currentStatus === "lineup" || currentStatus === "walkin at infidea";
-
-  // Check if the current employee is not the last registered and not in registration history
-  const isLastRegisteredByMe =
-    existingCandidate.lastRegisteredBy &&
-    existingCandidate.lastRegisteredBy.toString() ===
-      req.employee._id.toString();
-
-  let alreadyInHistory = false;
-  if (
-    existingCandidate.registrationHistory &&
-    existingCandidate.registrationHistory.length > 0
-  ) {
-    alreadyInHistory = existingCandidate.registrationHistory.some(
-      (entry) =>
-        entry.registeredBy &&
-        entry.registeredBy.toString() === req.employee._id.toString()
-    );
-  }
-
-  // When updating, mark the candidate for the current employee if they are not already registered
-  if (!isLastRegisteredByMe && !alreadyInHistory) {
-    // Store the previous owner's ID before we change it
-    const previousOwnerId = existingCandidate.lastRegisteredBy
-      ? existingCandidate.lastRegisteredBy
-      : null;
-
-    // Update registration history
-    existingCandidate.registrationHistory =
-      existingCandidate.registrationHistory || [];
-    existingCandidate.registrationHistory.push({
-      registeredBy: req.employee._id,
-      registrationDate: dateUtils.getCurrentDate(),
-      status: "Active",
-    });
-
-    // Mark previous history entries as expired
-    existingCandidate.registrationHistory.forEach((entry, index) => {
-      if (
-        index !== existingCandidate.registrationHistory.length - 1 &&
-        entry.status === "Active"
-      ) {
-        entry.status = "Expired";
-      }
-    });
-
-    req.body.lastRegisteredBy = req.employee._id;
-    req.body.registrationHistory = existingCandidate.registrationHistory;
-
-    // Send notification to the previous owner
-    if (previousOwnerId) {
-      try {
-        const markingEmployee = await Employee.findById(req.employee._id);
-
-        await createCandidateMarkNotification(
-          existingCandidate,
-          markingEmployee,
-          previousOwnerId,
-          req.io
-        );
-      } catch (error) {
-        console.error("Error sending notification:", error);
-        // Continue with the response even if notification fails
-      }
-    }
-  }
+    existingCandidate.callStatus &&
+    (existingCandidate.callStatus.toLowerCase() === "lineup" ||
+      existingCandidate.callStatus.toLowerCase() === "walkin at infidea");
 
   // Check if the candidate is not already locked and either:
   // 1. The candidate is being moved to a lockable status from a non-lockable status, or
@@ -903,56 +904,30 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     }
   );
 
-  // Check if callStatus is lineup and create or update a lineup record
+  // Check if callStatus is lineup and create/update lineup record
   if (req.body.callStatus && req.body.callStatus.toLowerCase() === "lineup") {
     const Lineup = require("../models/lineupModel");
 
-    // Find a lineup record for this candidate and creator
+    // Check if lineup record already exists
     const existingLineup = await Lineup.findOne({
       contactNumber: candidate.mobileNo,
-      company: req.body.lineupCompany || req.body.customLineupCompany,
-      process: req.body.lineupProcess || req.body.customLineupProcess,
-      createdBy: req.employee._id,
-      lineupRemarks: req.body.lineupRemarks,
-    });
-
-    const newLineupData = {
-      name: candidate.name,
-      contactNumber: candidate.mobileNo,
-      company: req.body.lineupCompany || req.body.customLineupCompany,
-      process: req.body.lineupProcess || req.body.customLineupProcess,
       lineupDate: req.body.lineupDate,
       interviewDate: req.body.interviewDate,
-      status: "Scheduled",
-      createdBy: req.employee._id,
-      lineupRemarks: req.body.lineupRemarks,
-    };
+    });
 
-    if (existingLineup) {
-      // Check if any field is different
-      let isDifferent = false;
-      for (const key in newLineupData) {
-        if (
-          existingLineup[key] &&
-          newLineupData[key] &&
-          existingLineup[key].toString() !== newLineupData[key].toString()
-        ) {
-          isDifferent = true;
-          break;
-        }
-      }
-
-      if (isDifferent) {
-        // Update the existing lineup record
-        await Lineup.findByIdAndUpdate(existingLineup._id, newLineupData, {
-          new: true,
-          runValidators: true,
-        });
-      }
-      // If not different, do nothing
-    } else {
-      // Create the lineup record
-      await Lineup.create(newLineupData);
+    if (!existingLineup) {
+      // Create new lineup record
+      await Lineup.create({
+        name: candidate.name,
+        contactNumber: candidate.mobileNo,
+        company: req.body.lineupCompany || req.body.customLineupCompany,
+        process: req.body.lineupProcess || req.body.customLineupProcess,
+        lineupDate: req.body.lineupDate,
+        interviewDate: req.body.interviewDate,
+        status: "Scheduled",
+        createdBy: req.employee._id,
+        remarks: req.body.lineupRemarks || "Updated from candidate",
+      });
     }
   }
 
@@ -993,13 +968,28 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
 
 // Delete candidate
 exports.deleteCandidate = handleAsync(async (req, res, next) => {
-  const candidate = await Candidate.findByIdAndDelete(req.params.id);
+  const candidate = await Candidate.findById(req.params.id);
 
   if (!candidate) {
     return res
       .status(404)
       .json({ status: "fail", message: "No candidate found with that ID" });
   }
+
+  // Check if candidate has an active joining
+  const joiningActive = await hasActiveJoining(candidate.mobileNo);
+
+  if (joiningActive) {
+    return res.status(403).json({
+      status: "fail",
+      message:
+        "This candidate cannot be deleted as it's part of an active joining",
+      hasActiveJoining: true,
+      editable: false,
+    });
+  }
+
+  await Candidate.findByIdAndDelete(req.params.id);
 
   res.status(204).json({
     status: "success",
@@ -1297,11 +1287,28 @@ exports.getCandidatesByStatus = handleAsync(async (req, res, next) => {
     "name"
   );
 
+  // Add editable property to each candidate
+  const candidatesWithEditFlag = await Promise.all(
+    candidates.map(async (candidate) => {
+      // Check if candidate has an active joining
+      const joiningActive = await hasActiveJoining(candidate.mobileNo);
+
+      // A candidate is not editable if it has an active joining
+      const editable = !joiningActive;
+
+      return {
+        ...candidate.toObject(),
+        editable,
+        hasActiveJoining: joiningActive,
+      };
+    })
+  );
+
   res.status(200).json({
     status: "success",
-    results: candidates.length,
+    results: candidatesWithEditFlag.length,
     data: {
-      candidates,
+      candidates: candidatesWithEditFlag,
     },
   });
 });
@@ -1310,11 +1317,28 @@ exports.getCandidatesByStatus = handleAsync(async (req, res, next) => {
 exports.getMyCandidates = handleAsync(async (req, res, next) => {
   const candidates = await Candidate.find({ createdBy: req.user.id });
 
+  // Add editable property to each candidate
+  const candidatesWithEditFlag = await Promise.all(
+    candidates.map(async (candidate) => {
+      // Check if candidate has an active joining
+      const joiningActive = await hasActiveJoining(candidate.mobileNo);
+
+      // A candidate is not editable if it has an active joining
+      const editable = !joiningActive;
+
+      return {
+        ...candidate.toObject(),
+        editable,
+        hasActiveJoining: joiningActive,
+      };
+    })
+  );
+
   res.status(200).json({
     status: "success",
-    results: candidates.length,
+    results: candidatesWithEditFlag.length,
     data: {
-      candidates,
+      candidates: candidatesWithEditFlag,
     },
   });
 });
@@ -1421,6 +1445,62 @@ exports.checkRemainingUploadQuota = handleAsync(async (req, res, next) => {
       uploaded: count,
       remaining: remainingQuota,
       canUpload: remainingQuota > 0,
+    },
+  });
+});
+
+// Test candidate editability
+exports.testCandidateEditability = handleAsync(async (req, res, next) => {
+  const { contactNumber } = req.params;
+
+  if (!contactNumber) {
+    return res.status(400).json({
+      status: "fail",
+      message: "Contact number is required",
+    });
+  }
+
+  const candidate = await Candidate.findOne({ mobileNo: contactNumber });
+
+  if (!candidate) {
+    return res.status(404).json({
+      status: "fail",
+      message: "No candidate found with that contact number",
+    });
+  }
+
+  // Check if candidate has an active joining
+  const joiningActive = await hasActiveJoining(contactNumber);
+
+  // A candidate is not editable if it has an active joining
+  const editable = !joiningActive;
+
+  // Get any active joining info
+  let activeJoining = null;
+  if (joiningActive) {
+    activeJoining = await Joining.findOne({
+      contactNumber,
+      status: "Joining Details Received",
+    })
+      .populate("company", "companyName")
+      .populate("process", "processName");
+  }
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      candidateName: candidate.name,
+      contactNumber: candidate.mobileNo,
+      editable,
+      hasActiveJoining: joiningActive,
+      activeJoining: activeJoining
+        ? {
+            company: activeJoining.company?.companyName || "Custom Company",
+            process: activeJoining.process?.processName || "Custom Process",
+            joiningDate: activeJoining.joiningDate,
+            joiningType: activeJoining.joiningType,
+          }
+        : null,
     },
   });
 });

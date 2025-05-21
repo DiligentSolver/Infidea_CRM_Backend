@@ -138,6 +138,38 @@ const createJoining = handleAsync(async (req, res) => {
     });
   }
 
+  // Check if an ACTIVE joining with this contact number already exists
+  // Only block if the status is "Joining Details Received"
+  const existingActiveJoining = await Joining.findOne({
+    contactNumber,
+    company,
+    process,
+    status: "Joining Details Received",
+  });
+
+  if (existingActiveJoining) {
+    return res.status(409).json({
+      success: false,
+      message:
+        "An active joining record already exists for this candidate with the same company and process.",
+      joiningId: existingActiveJoining._id,
+    });
+  }
+
+  // Check if any joining (regardless of status) exists for same candidate, company, process
+  // If it exists but is not in "Joining Details Received" status, we'll allow creating a new one
+  // but we'll include the existing joining ID in the response for reference
+  const existingAnyJoining = await Joining.findOne({
+    contactNumber,
+    company,
+    process,
+  });
+
+  let previousJoiningId = null;
+  if (existingAnyJoining) {
+    previousJoiningId = existingAnyJoining._id;
+  }
+
   // Check if candidate is locked by a different employee
   const lockStatus = await checkCandidateLock(contactNumber);
 
@@ -160,7 +192,6 @@ const createJoining = handleAsync(async (req, res) => {
 
   // Check if lineup exists with this contact number
   const lineup = await Lineup.findOne({
-    name: candidateName,
     contactNumber: contactNumber,
     company: company,
     process: process,
@@ -199,6 +230,26 @@ const createJoining = handleAsync(async (req, res) => {
     ).toLocaleDateString()}`,
   });
 
+  // Update candidate status
+  await Candidate.findOneAndUpdate(
+    { mobileNo: contactNumber },
+    {
+      callStatus: "Joined",
+      $push: {
+        callStatusHistory: {
+          status: "Joined",
+          date: Date.now(),
+          employee: req.employee._id,
+        },
+        remarks: {
+          remark: `Joined ${company} - ${process}`,
+          date: Date.now(),
+          employee: req.employee._id,
+        },
+      },
+    }
+  );
+
   // Update incentives
   joining = await updateJoiningIncentives(joining, true);
   await joining.save();
@@ -219,8 +270,11 @@ const createJoining = handleAsync(async (req, res) => {
 
   return res.status(201).json({
     success: true,
-    message: "Joining created successfully",
+    message: previousJoiningId
+      ? "Joining created successfully (Note: A previous inactive joining exists for this candidate)"
+      : "Joining created successfully",
     joining,
+    previousJoiningId,
   });
 });
 
@@ -381,6 +435,45 @@ const updateJoining = handleAsync(async (req, res) => {
     });
   }
 
+  // Check if updating to a different contact number
+  if (
+    updateData.contactNumber &&
+    updateData.contactNumber !== existingJoining.contactNumber
+  ) {
+    // Only block if there's an active joining with "Joining Details Received" status
+    const duplicateActiveJoining = await Joining.findOne({
+      contactNumber: updateData.contactNumber,
+      company: updateData.company || existingJoining.company,
+      process: updateData.process || existingJoining.process,
+      status: "Joining Details Received",
+      _id: { $ne: joiningId },
+    });
+
+    if (duplicateActiveJoining) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Another active joining record already exists for this candidate with the same company and process.",
+        joiningId: duplicateActiveJoining._id,
+      });
+    }
+
+    // Check if any joining exists (not necessarily active)
+    const duplicateAnyJoining = await Joining.findOne({
+      contactNumber: updateData.contactNumber,
+      company: updateData.company || existingJoining.company,
+      process: updateData.process || existingJoining.process,
+      _id: { $ne: joiningId },
+    });
+
+    if (duplicateAnyJoining) {
+      // Not blocking, but adding info to the response
+      updateData.previousJoiningExists = true;
+      updateData.previousJoiningId = duplicateAnyJoining._id;
+      updateData.previousJoiningStatus = duplicateAnyJoining.status;
+    }
+  }
+
   // Check if the candidate is locked by someone else
   const lockStatus = await checkCandidateLock(existingJoining.contactNumber);
   if (
@@ -455,6 +548,60 @@ const updateJoining = handleAsync(async (req, res) => {
           },
         },
       });
+    }
+  }
+
+  // Check if status is changed from "Joining Details Received" to another status
+  if (
+    updateData.status &&
+    updateData.status !== "Joining Details Received" &&
+    existingJoining.status === "Joining Details Received"
+  ) {
+    // The joining status is being changed away from "Joining Details Received"
+    // Check if there are other active joinings for this candidate
+    const otherActiveJoinings = await Joining.countDocuments({
+      contactNumber: joining.contactNumber,
+      status: "Joining Details Received",
+      _id: { $ne: joiningId },
+    });
+
+    // If no other active joinings, unlock the candidate's 90-day lock
+    if (otherActiveJoinings === 0) {
+      const candidate = await Candidate.findOne({
+        mobileNo: joining.contactNumber,
+      });
+
+      if (candidate) {
+        // Only unlock if the lock was specifically for joining (90 days)
+        // For lineup or walkin locks, we should keep them locked
+        if (
+          candidate.isLocked &&
+          candidate.registrationLockExpiry &&
+          // Calculate approximate lock time - if it's close to 90 days, it was likely a joining lock
+          (candidate.registrationLockExpiry - new Date()) /
+            (1000 * 60 * 60 * 24) >
+            LINEUP_LOCK_DAYS
+        ) {
+          // Instead of unlocking, let's set the lock to lineup lock days if candidate is still in lineup/walkin status
+          if (
+            candidate.callStatus === "Lineup" ||
+            candidate.callStatus === "Walkin at Infidea"
+          ) {
+            const newLockExpiry = new Date();
+            newLockExpiry.setDate(newLockExpiry.getDate() + LINEUP_LOCK_DAYS);
+
+            await Candidate.findByIdAndUpdate(candidate._id, {
+              registrationLockExpiry: newLockExpiry,
+            });
+          } else {
+            // For other statuses, unlock the candidate
+            await Candidate.findByIdAndUpdate(candidate._id, {
+              isLocked: false,
+              registrationLockExpiry: null,
+            });
+          }
+        }
+      }
     }
   }
 

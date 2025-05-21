@@ -69,15 +69,36 @@ This standardization ensures that:
 
 ## Candidate Locking System
 
-The CRM implements a candidate locking system that works as follows:
+The CRM implements a comprehensive candidate locking system that works as follows:
 
-1. When a candidate is added with a call status of "Lineup" or "Walkin at Infidea", the candidate is locked for the employee who registered them for 30 days.
-2. Similarly, when a lineup or walkin is created manually, the candidate is locked for the employee for 30 days.
-3. When a joining is added, the candidate is locked for the employee who created the lineup for 90 days.
-4. The system checks the locking status before allowing any operations (lineup, walkin, joining).
-5. No entry can be made if a candidate is locked by another employee.
+1. **Duplicate Prevention**:
 
-Important: When a candidate is marked by an employee, they are NOT locked, regardless of their status.
+   - The system prevents duplicate candidate entries based on mobile number
+   - For joinings, only one active joining (status "Joining Details Received") is allowed for the same candidate, company, and process
+   - New joinings can be created if previous joinings are not in "Joining Details Received" status
+
+2. **Locking Rules**:
+
+   - When a candidate is added with status "Lineup" or "Walkin at Infidea", they are locked for 30 days
+   - When a joining record is created or updated to "Joining Details Received", the candidate is locked for 90 days
+   - A candidate with an active joining cannot be edited by any employee until the lock expires
+
+3. **Automated Lock Management**:
+
+   - A scheduler runs every 5 minutes to check and update candidate locks
+   - Candidates are automatically unlocked when their lock period expires
+   - After the lock expires, candidates can be reused for new joinings
+
+4. **Conditional Unlocking**:
+
+   - If joining status changes from "Joining Details Received" to another status, the system checks for other active joinings
+   - If no other active joinings exist, the candidate may be unlocked or reverted to a 30-day lock based on their status
+
+5. **Reusing Candidates**:
+   - After the 90-day lock expires, candidates can be reused for new joinings (same or different positions)
+   - If a previous joining was unsuccessful (not "Joining Details Received"), new joinings can be created for the same position
+
+For detailed information on the locking system, refer to the documentation in `/docs/candidate-locking-system.md`.
 
 ### Environment Variables for Locking
 

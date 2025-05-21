@@ -1,4 +1,5 @@
 const Candidate = require("../models/candidateModel");
+const Joining = require("../models/joiningModel");
 require("dotenv").config();
 
 // Default lock durations if not set in environment variables
@@ -15,7 +16,7 @@ const JOINING_LOCK_DAYS = parseInt(
 
 /**
  * Utility function to unlock candidates whose lock periods have expired
- * This should be run periodically, e.g., daily via a cron job
+ * This should be run periodically, e.g., every 5 minutes via cron job
  */
 const unlockExpiredCandidates = async () => {
   try {
@@ -44,6 +45,25 @@ const unlockExpiredCandidates = async () => {
 };
 
 /**
+ * Check if a candidate has an active joining and should be locked
+ * @param {string} contactNumber - The candidate's contact number
+ * @returns {boolean} - Whether the candidate has an active joining record
+ */
+const hasActiveJoining = async (contactNumber) => {
+  try {
+    const joining = await Joining.findOne({
+      contactNumber,
+      status: "Joining Details Received",
+    });
+
+    return !!joining;
+  } catch (error) {
+    console.error("Error checking for active joining:", error);
+    throw error;
+  }
+};
+
+/**
  * Lock a candidate for a specified employee
  * @param {string} contactNumber - The candidate's contact number
  * @param {string} employeeId - The ID of the employee who is locking the candidate
@@ -61,7 +81,7 @@ const lockCandidate = async (contactNumber, employeeId, lockType) => {
     // Define lock duration based on type
     let lockDurationDays = LINEUP_LOCK_DAYS; // Default for lineup and walkin
     if (lockType === "joining") {
-      lockDurationDays = JOINING_LOCK_DAYS; // Days for joining from env
+      lockDurationDays = JOINING_LOCK_DAYS;
     }
 
     // Calculate lock expiry date
@@ -115,16 +135,34 @@ const checkCandidateLock = async (contactNumber) => {
       return null;
     }
 
+    // Check if the candidate has an active joining record
+    const joiningActive = await hasActiveJoining(contactNumber);
+
     const currentDate = new Date();
-    const isLocked =
+    let isLocked =
       candidate.isLocked && candidate.registrationLockExpiry > currentDate;
+
+    // If joining is active, the candidate is locked regardless of other conditions
+    if (joiningActive) {
+      isLocked = true;
+    }
 
     // Calculate remaining days if locked
     let remainingDays = 0;
     let remainingTime = null;
+    let lockExpiryDate = candidate.registrationLockExpiry;
 
     if (isLocked) {
-      const diffMs = candidate.registrationLockExpiry - currentDate;
+      if (
+        joiningActive &&
+        (!candidate.isLocked || !candidate.registrationLockExpiry)
+      ) {
+        // If joining active but no lock expiry set, create one for 90 days
+        lockExpiryDate = new Date();
+        lockExpiryDate.setDate(lockExpiryDate.getDate() + JOINING_LOCK_DAYS);
+      }
+
+      const diffMs = lockExpiryDate - currentDate;
       remainingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
       if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
@@ -136,13 +174,92 @@ const checkCandidateLock = async (contactNumber) => {
 
     return {
       isLocked,
-      lockExpiryDate: candidate.registrationLockExpiry,
+      lockExpiryDate,
       lockedBy: isLocked ? candidate.lastRegisteredBy : null,
       remainingDays,
       remainingTime,
+      joiningActive,
     };
   } catch (error) {
     console.error("Error checking candidate lock:", error);
+    throw error;
+  }
+};
+
+/**
+ * Sync the lock status of all candidates with joining records
+ * This checks all joining records and ensures candidates are properly locked
+ * @returns {number} - Number of candidates updated
+ */
+const syncJoiningCandidateLocks = async () => {
+  try {
+    const joinings = await Joining.find({
+      status: "Joining Details Received",
+    });
+
+    let updatedCount = 0;
+
+    for (const joining of joinings) {
+      const candidate = await Candidate.findOne({
+        mobileNo: joining.contactNumber,
+      });
+
+      if (candidate) {
+        // If candidate doesn't have a lock or lock has expired, create a new one
+        const currentDate = new Date();
+        if (
+          !candidate.isLocked ||
+          candidate.registrationLockExpiry < currentDate
+        ) {
+          const registrationLockExpiry = new Date();
+          registrationLockExpiry.setDate(
+            registrationLockExpiry.getDate() + JOINING_LOCK_DAYS
+          );
+
+          candidate.isLocked = true;
+          candidate.registrationLockExpiry = registrationLockExpiry;
+
+          // If no lastRegisteredBy set, use the joining creator
+          if (!candidate.lastRegisteredBy) {
+            candidate.lastRegisteredBy = joining.createdBy;
+          }
+
+          await candidate.save();
+          updatedCount++;
+        }
+      }
+    }
+
+    console.log(
+      `${updatedCount} candidates with joinings had their locks updated.`
+    );
+    return updatedCount;
+  } catch (error) {
+    console.error("Error syncing joining candidate locks:", error);
+    throw error;
+  }
+};
+
+/**
+ * Check candidates with walkin or lineup status for active joinings
+ * This function now just logs the count of candidates with walkin/lineup status
+ * but does not directly lock them as per the new dependency hierarchy
+ */
+const syncStatusBasedLocks = async () => {
+  try {
+    // Find all candidates with Walkin or Lineup status
+    const candidates = await Candidate.find({
+      callStatus: { $in: ["Walkin", "Lineup"] },
+    });
+
+    console.log(
+      `${candidates.length} candidates found with Walkin/Lineup status. No direct locking applied as per new policy.`
+    );
+
+    // Now we're only returning a count, not updating anything
+    return 0;
+  } catch (error) {
+    console.error("Error checking status-based candidate locks:", error);
     throw error;
   }
 };
@@ -151,6 +268,9 @@ module.exports = {
   unlockExpiredCandidates,
   checkCandidateLock,
   lockCandidate,
+  syncJoiningCandidateLocks,
+  syncStatusBasedLocks,
+  hasActiveJoining,
   LINEUP_LOCK_DAYS,
   JOINING_LOCK_DAYS,
 };

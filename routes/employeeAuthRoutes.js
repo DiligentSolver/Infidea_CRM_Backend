@@ -13,6 +13,7 @@ const {
   registerEmployee,
   logoutEmployee,
   verifyLoginAdminOtp,
+  resendLoginOtp,
 } = require("../controllers/employeeAuthController");
 const router = express.Router();
 const { authMiddleware } = require("../middleware/authMiddleware");
@@ -31,6 +32,9 @@ router.post("/login", loginEmployee);
 
 // Verify Admin OTP for login completion
 router.post("/verify-login-otp", verifyLoginAdminOtp);
+
+// Resend Admin OTP for login verification
+router.post("/resend-login-otp", resendLoginOtp);
 
 //Employee Register route
 router.post("/register", registerEmployee);

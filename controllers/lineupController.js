@@ -9,6 +9,18 @@ const {
 } = require("../utils/candidateLockManager");
 const Joining = require("../models/joiningModel");
 
+// Helper function to check if a lineup is part of an active joining
+const isLineupInActiveJoining = async (contactNumber, company, process) => {
+  const activeJoining = await Joining.findOne({
+    contactNumber,
+    company,
+    process,
+    status: "Joining Details Received",
+  });
+
+  return !!activeJoining;
+};
+
 // Create a new lineup
 const createLineup = handleAsync(async (req, res) => {
   const {
@@ -63,6 +75,20 @@ const createLineup = handleAsync(async (req, res) => {
           "Joining type must be either 'International', 'Domestic', or 'Mid-Lateral'",
       });
     }
+  }
+
+  // Check if the lineup is already part of an active joining
+  const hasActiveJoining = await isLineupInActiveJoining(
+    contactNumber,
+    company,
+    process
+  );
+  if (hasActiveJoining) {
+    return res.status(409).json({
+      success: false,
+      message:
+        "This candidate already has an active joining for this company and process",
+    });
   }
 
   // Check if candidate exists with this contact number
@@ -125,9 +151,6 @@ const createLineup = handleAsync(async (req, res) => {
     createdBy: req.employee._id,
     remarks,
   });
-
-  // Lock the candidate for 30 days for the current employee
-  await lockCandidate(contactNumber, req.employee._id, "lineup");
 
   // Update candidate's lineup fields
   if (
@@ -210,24 +233,35 @@ const getAllLineups = handleAsync(async (req, res) => {
     createdAt: -1,
   });
 
-  const candidate = await Candidate.findOne({
-    mobileNo: lineups[0].contactNumber,
-  });
+  if (lineups.length === 0) {
+    return res.status(200).json({
+      success: true,
+      message: "No lineups found",
+      lineups: [],
+      totalLineups: 0,
+    });
+  }
 
   // Add editable property to each lineup
-  const lineupResults = lineups.map((lineup) => {
-    const isLockedByMe =
-      candidate.isLocked &&
-      candidate.lastRegisteredBy.toString() === req.employee._id.toString();
+  const lineupResultsPromises = lineups.map(async (lineup) => {
+    // Check if this lineup is part of an active joining
+    const inActiveJoining = await isLineupInActiveJoining(
+      lineup.contactNumber,
+      lineup.company,
+      lineup.process
+    );
 
-    // A lineup is not editable if it's in "Joined" status, locked, and locked by current employee
-    const editable = !(isLockedByMe && lineup.status === "Joined");
+    // A lineup is not editable if it's part of an active joining
+    const editable = !inActiveJoining;
 
     return {
       ...lineup.toObject(),
       editable,
+      hasActiveJoining: inActiveJoining,
     };
   });
+
+  const lineupResults = await Promise.all(lineupResultsPromises);
 
   return res.status(200).json({
     success: true,
@@ -259,20 +293,20 @@ const getLineupById = handleAsync(async (req, res) => {
     });
   }
 
-  const isLockedByMe =
-    lineup.lockedBy &&
-    lineup.lockedBy.toString() === req.employee._id.toString();
-
-  // A lineup is not editable if it's in "Joined" status, locked, and locked by current employee
-  const editable = !(
-    isLockedByMe &&
-    lineup.isLocked &&
-    lineup.status === "Joined"
+  // Check if this lineup is part of an active joining
+  const inActiveJoining = await isLineupInActiveJoining(
+    lineup.contactNumber,
+    lineup.company,
+    lineup.process
   );
+
+  // A lineup is not editable if it's part of an active joining
+  const editable = !inActiveJoining;
 
   const lineupResult = {
     ...lineup.toObject(),
     editable,
+    hasActiveJoining: inActiveJoining,
   };
 
   return res.status(200).json({
@@ -305,21 +339,19 @@ const updateLineup = handleAsync(async (req, res) => {
     });
   }
 
-  // Check if lineup is editable
-  const isLockedByMe =
-    existingLineup.lockedBy &&
-    existingLineup.lockedBy.toString() === req.employee._id.toString();
-
-  const isEditable = !(
-    isLockedByMe &&
-    existingLineup.isLocked &&
-    existingLineup.status === "Joined"
+  // Check if this lineup is part of an active joining
+  const inActiveJoining = await isLineupInActiveJoining(
+    existingLineup.contactNumber,
+    existingLineup.company,
+    existingLineup.process
   );
 
-  if (!isEditable) {
+  // A lineup is not editable if it's part of an active joining
+  if (inActiveJoining) {
     return res.status(403).json({
       success: false,
-      message: "You cannot update this lineup as it is marked as non-editable",
+      message: "This lineup cannot be edited as it's part of an active joining",
+      hasActiveJoining: true,
     });
   }
 
@@ -409,6 +441,8 @@ const updateLineup = handleAsync(async (req, res) => {
     // Check if a joining already exists for this candidate, company and process
     const existingJoining = await Joining.findOne({
       contactNumber: existingLineup.contactNumber,
+      company: existingLineup.company,
+      process: existingLineup.process,
     });
 
     if (!existingJoining) {
@@ -463,7 +497,7 @@ const deleteLineup = handleAsync(async (req, res) => {
     });
   }
 
-  const lineup = await Lineup.findByIdAndDelete(lineupId);
+  const lineup = await Lineup.findById(lineupId);
 
   if (!lineup) {
     return res.status(404).json({
@@ -471,6 +505,25 @@ const deleteLineup = handleAsync(async (req, res) => {
       message: "Lineup not found",
     });
   }
+
+  // Check if this lineup is part of an active joining
+  const inActiveJoining = await isLineupInActiveJoining(
+    lineup.contactNumber,
+    lineup.company,
+    lineup.process
+  );
+
+  // A lineup is not deletable if it's part of an active joining
+  if (inActiveJoining) {
+    return res.status(403).json({
+      success: false,
+      message:
+        "This lineup cannot be deleted as it's part of an active joining",
+      hasActiveJoining: true,
+    });
+  }
+
+  await Lineup.findByIdAndDelete(lineupId);
 
   return res.status(200).json({
     success: true,
@@ -489,13 +542,47 @@ const deleteMultipleLineups = handleAsync(async (req, res) => {
     });
   }
 
+  // For each lineup, check if it's part of an active joining
+  const lineups = await Lineup.find({ _id: { $in: lineupIds } });
+
+  const undeleteableLineups = [];
+  const deleteableLineups = [];
+
+  for (const lineup of lineups) {
+    const inActiveJoining = await isLineupInActiveJoining(
+      lineup.contactNumber,
+      lineup.company,
+      lineup.process
+    );
+
+    if (inActiveJoining) {
+      undeleteableLineups.push(lineup._id);
+    } else {
+      deleteableLineups.push(lineup._id);
+    }
+  }
+
+  if (undeleteableLineups.length > 0 && deleteableLineups.length === 0) {
+    return res.status(403).json({
+      success: false,
+      message:
+        "None of the selected lineups can be deleted as they are part of active joinings",
+      undeleteableLineups,
+    });
+  }
+
   const result = await Lineup.deleteMany({
-    _id: { $in: lineupIds },
+    _id: { $in: deleteableLineups },
   });
 
   return res.status(200).json({
     success: true,
-    message: `${result.deletedCount} lineups deleted successfully`,
+    message:
+      undeleteableLineups.length > 0
+        ? `${result.deletedCount} lineups deleted successfully. ${undeleteableLineups.length} lineups could not be deleted as they are part of active joinings.`
+        : `${result.deletedCount} lineups deleted successfully`,
+    undeleteableLineups:
+      undeleteableLineups.length > 0 ? undeleteableLineups : undefined,
   });
 });
 

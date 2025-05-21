@@ -6,6 +6,17 @@ const {
   checkCandidateLock,
   lockCandidate,
 } = require("../utils/candidateLockManager");
+const Joining = require("../models/joiningModel");
+
+// Helper function to check if a walkin candidate is part of an active joining
+const isWalkinInActiveJoining = async (contactNumber) => {
+  const activeJoining = await Joining.findOne({
+    contactNumber,
+    status: "Joining Details Received",
+  });
+
+  return !!activeJoining;
+};
 
 // Create a new walkin
 const createWalkin = handleAsync(async (req, res) => {
@@ -17,6 +28,15 @@ const createWalkin = handleAsync(async (req, res) => {
     return res.status(400).json({
       success: false,
       message: "All required fields must be provided",
+    });
+  }
+
+  // Check if the walkin is already part of an active joining
+  const hasActiveJoining = await isWalkinInActiveJoining(contactNumber);
+  if (hasActiveJoining) {
+    return res.status(409).json({
+      success: false,
+      message: "This candidate already has an active joining",
     });
   }
 
@@ -59,9 +79,6 @@ const createWalkin = handleAsync(async (req, res) => {
     createdBy: req.employee._id,
   });
 
-  // Lock the candidate for 30 days for the current employee
-  await lockCandidate(contactNumber, req.employee._id, "walkin");
-
   // Update candidate's walkinDate if candidate exists
   if (candidate) {
     const remarkHistory = {
@@ -99,13 +116,37 @@ const getAllWalkins = handleAsync(async (req, res) => {
     .populate("createdBy", "name")
     .sort({ createdAt: -1 });
 
-  const totalWalkins = await Walkin.countDocuments();
+  if (walkins.length === 0) {
+    return res.status(200).json({
+      success: true,
+      message: "No walkins found",
+      walkins: [],
+      totalWalkins: 0,
+    });
+  }
+
+  // Add editable property to each walkin
+  const walkinResultsPromises = walkins.map(async (walkin) => {
+    // Check if this walkin is part of an active joining
+    const inActiveJoining = await isWalkinInActiveJoining(walkin.contactNumber);
+
+    // A walkin is not editable if it's part of an active joining
+    const editable = !inActiveJoining;
+
+    return {
+      ...walkin.toObject(),
+      editable,
+      hasActiveJoining: inActiveJoining,
+    };
+  });
+
+  const walkinResults = await Promise.all(walkinResultsPromises);
 
   return res.status(200).json({
     success: true,
     message: "Walkins fetched successfully",
-    walkins,
-    totalWalkins,
+    walkins: walkinResults,
+    totalWalkins: walkins.length,
   });
 });
 
@@ -129,10 +170,22 @@ const getWalkinById = handleAsync(async (req, res) => {
     });
   }
 
+  // Check if this walkin is part of an active joining
+  const inActiveJoining = await isWalkinInActiveJoining(walkin.contactNumber);
+
+  // A walkin is not editable if it's part of an active joining
+  const editable = !inActiveJoining;
+
+  const walkinResult = {
+    ...walkin.toObject(),
+    editable,
+    hasActiveJoining: inActiveJoining,
+  };
+
   return res.status(200).json({
     success: true,
     message: "Walkin fetched successfully",
-    walkin,
+    walkin: walkinResult,
   });
 });
 
@@ -154,6 +207,20 @@ const updateWalkin = handleAsync(async (req, res) => {
     return res.status(404).json({
       success: false,
       message: "Walkin not found",
+    });
+  }
+
+  // Check if this walkin is part of an active joining
+  const inActiveJoining = await isWalkinInActiveJoining(
+    existingWalkin.contactNumber
+  );
+
+  // A walkin is not editable if it's part of an active joining
+  if (inActiveJoining) {
+    return res.status(403).json({
+      success: false,
+      message: "This walkin cannot be edited as it's part of an active joining",
+      hasActiveJoining: true,
     });
   }
 
@@ -214,7 +281,7 @@ const deleteWalkin = handleAsync(async (req, res) => {
     });
   }
 
-  const walkin = await Walkin.findByIdAndDelete(walkinId);
+  const walkin = await Walkin.findById(walkinId);
 
   if (!walkin) {
     return res.status(404).json({
@@ -222,6 +289,21 @@ const deleteWalkin = handleAsync(async (req, res) => {
       message: "Walkin not found",
     });
   }
+
+  // Check if this walkin is part of an active joining
+  const inActiveJoining = await isWalkinInActiveJoining(walkin.contactNumber);
+
+  // A walkin is not deletable if it's part of an active joining
+  if (inActiveJoining) {
+    return res.status(403).json({
+      success: false,
+      message:
+        "This walkin cannot be deleted as it's part of an active joining",
+      hasActiveJoining: true,
+    });
+  }
+
+  await Walkin.findByIdAndDelete(walkinId);
 
   return res.status(200).json({
     success: true,
@@ -240,13 +322,43 @@ const deleteMultipleWalkins = handleAsync(async (req, res) => {
     });
   }
 
+  // For each walkin, check if it's part of an active joining
+  const walkins = await Walkin.find({ _id: { $in: walkinIds } });
+
+  const undeleteableWalkins = [];
+  const deleteableWalkins = [];
+
+  for (const walkin of walkins) {
+    const inActiveJoining = await isWalkinInActiveJoining(walkin.contactNumber);
+
+    if (inActiveJoining) {
+      undeleteableWalkins.push(walkin._id);
+    } else {
+      deleteableWalkins.push(walkin._id);
+    }
+  }
+
+  if (undeleteableWalkins.length > 0 && deleteableWalkins.length === 0) {
+    return res.status(403).json({
+      success: false,
+      message:
+        "None of the selected walkins can be deleted as they are part of active joinings",
+      undeleteableWalkins,
+    });
+  }
+
   const result = await Walkin.deleteMany({
-    _id: { $in: walkinIds },
+    _id: { $in: deleteableWalkins },
   });
 
   return res.status(200).json({
     success: true,
-    message: `${result.deletedCount} walkins deleted successfully`,
+    message:
+      undeleteableWalkins.length > 0
+        ? `${result.deletedCount} walkins deleted successfully. ${undeleteableWalkins.length} walkins could not be deleted as they are part of active joinings.`
+        : `${result.deletedCount} walkins deleted successfully`,
+    undeleteableWalkins:
+      undeleteableWalkins.length > 0 ? undeleteableWalkins : undefined,
   });
 });
 

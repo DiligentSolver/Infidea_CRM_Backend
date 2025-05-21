@@ -32,6 +32,13 @@ router.get(
   candidateController.checkDulicateInputField
 );
 
+// Test candidate editability
+router.get(
+  "/test-editability/:contactNumber",
+  employeeMiddleware,
+  candidateController.testCandidateEditability
+);
+
 // Get my candidates
 router.get(
   "/my-candidates",

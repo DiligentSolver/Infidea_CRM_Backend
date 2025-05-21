@@ -240,6 +240,40 @@ exports.loginEmployee = handleAsync(async (req, res) => {
   }
 });
 
+// Resend Login OTP for Employee
+exports.resendLoginOtp = handleAsync(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  // Find the user
+  const user = await Employee.findOne({ email }).lean();
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  // Get client IP address
+  const ipAddress = getClientIp(req);
+
+  // Send OTP to admin emails for verification
+  try {
+    sendLoginVerificationOTP(user, ipAddress);
+    return res.status(200).json({
+      message: "Verification code resent to administrators.",
+      requiresOtp: true,
+      userId: user._id,
+      email: user.email,
+    });
+  } catch (error) {
+    console.error("Error in admin OTP resending:", error);
+    return res.status(500).json({
+      error: "Failed to resend verification code. Please try again later.",
+    });
+  }
+});
+
 // Verify Login OTP from admin for final login
 exports.verifyLoginAdminOtp = handleAsync(async (req, res) => {
   const { userId, otp } = req.body;
