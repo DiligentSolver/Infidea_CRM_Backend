@@ -5,6 +5,14 @@ const cron = require("node-cron");
 const moment = require("moment-timezone");
 const fs = require("fs");
 const path = require("path");
+const {
+  formatDate,
+  toLocaleTimeString,
+  getCurrentDate,
+  startOfDay,
+  endOfDay,
+  IST_TIMEZONE,
+} = require("./dateUtils");
 
 // Import models
 const Employee = require("../models/employeeModel");
@@ -51,16 +59,13 @@ const formatTimeString = (totalMinutes) => {
  * @returns {Object} - Total working time in minutes and formatted string
  */
 const calculateTotalWorkingTime = async (employee, date) => {
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
+  const startOfDayDate = startOfDay(date);
+  const endOfDayDate = endOfDay(date);
 
   // Get all activities for the employee on the given date
   const activities = await Activity.find({
     employeeId: employee._id,
-    startTime: { $gte: startOfDay, $lte: endOfDay },
+    startTime: { $gte: startOfDayDate, $lte: endOfDayDate },
   }).sort({ startTime: 1 });
 
   if (activities.length === 0) {
@@ -71,7 +76,7 @@ const calculateTotalWorkingTime = async (employee, date) => {
   for (const activity of activities) {
     const start = new Date(activity.startTime);
     // Use endTime if available, otherwise use the end of day
-    const end = activity.endTime ? new Date(activity.endTime) : endOfDay;
+    const end = activity.endTime ? new Date(activity.endTime) : endOfDayDate;
 
     // Calculate duration in minutes
     const durationMinutes = Math.floor((end - start) / (1000 * 60));
@@ -91,16 +96,13 @@ const calculateTotalWorkingTime = async (employee, date) => {
  * @returns {Object} - Login and logout times
  */
 const getLoginLogoutTimes = async (employee, date) => {
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
+  const startOfDayDate = startOfDay(date);
+  const endOfDayDate = endOfDay(date);
 
   // Get all activities for the employee on the given date
   const activities = await Activity.find({
     employeeId: employee._id,
-    startTime: { $gte: startOfDay, $lte: endOfDay },
+    startTime: { $gte: startOfDayDate, $lte: endOfDayDate },
   }).sort({ startTime: 1 });
 
   if (activities.length === 0) {
@@ -120,9 +122,12 @@ const getLoginLogoutTimes = async (employee, date) => {
 
   if (lastActivity.endTime) {
     logoutTime = lastActivity.endTime;
-  } else if (date.toDateString() !== new Date().toDateString()) {
+  } else if (
+    formatDate(date, "YYYY-MM-DD") !==
+    formatDate(getCurrentDate(), "YYYY-MM-DD")
+  ) {
     // If it's not today, use end of day
-    logoutTime = endOfDay;
+    logoutTime = endOfDayDate;
   }
 
   return {
@@ -141,11 +146,8 @@ const getCallStatistics = async (employee, date) => {
   // This is a placeholder for actual call tracking logic
   // Replace with actual implementation based on your call tracking system
 
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
+  const startOfDayDate = startOfDay(date);
+  const endOfDayDate = endOfDay(date);
 
   // Example logic - you would replace this with your actual call tracking logic
   // For example, if you have a calls collection, you would query it here
@@ -163,28 +165,25 @@ const getCallStatistics = async (employee, date) => {
  * @returns {Object} - Counts of candidates, lineups, and joinings
  */
 const getWorkSummary = async (employee, date) => {
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
+  const startOfDayDate = startOfDay(date);
+  const endOfDayDate = endOfDay(date);
 
   // Count lineups created by the employee on the given date
   const lineups = await Lineup.find({
     createdBy: employee._id,
-    createdAt: { $gte: startOfDay, $lte: endOfDay },
+    createdAt: { $gte: startOfDayDate, $lte: endOfDayDate },
   });
 
   // Count joinings created by the employee on the given date
   const joinings = await Joining.find({
     createdBy: employee._id,
-    createdAt: { $gte: startOfDay, $lte: endOfDay },
+    createdAt: { $gte: startOfDayDate, $lte: endOfDayDate },
   });
 
   // Count candidates created by the employee on the given date
   const candidates = await Candidate.find({
     createdBy: employee._id,
-    createdAt: { $gte: startOfDay, $lte: endOfDay },
+    createdAt: { $gte: startOfDayDate, $lte: endOfDayDate },
   });
 
   // Calculate walking count (you may need to adjust based on your data model)
@@ -300,10 +299,16 @@ const generateExcelReport = async (reportData, date) => {
       id: data.employee.id,
       name: data.employee.name,
       loginTime: data.attendance.loginTime
-        ? moment(data.attendance.loginTime).format("MM/DD/YYYY, h:mm:ss A")
+        ? `${formatDate(
+            data.attendance.loginTime,
+            "MM/DD/YYYY"
+          )}, ${toLocaleTimeString(data.attendance.loginTime)}`
         : "N/A",
       logoutTime: data.attendance.logoutTime
-        ? moment(data.attendance.logoutTime).format("MM/DD/YYYY, h:mm:ss A")
+        ? `${formatDate(
+            data.attendance.logoutTime,
+            "MM/DD/YYYY"
+          )}, ${toLocaleTimeString(data.attendance.logoutTime)}`
         : "N/A",
       workingTime: data.attendance.totalWorkingTime,
       lineups: data.workSummary.totalLineups,
@@ -360,8 +365,8 @@ const generateExcelReport = async (reportData, date) => {
             contactNumber: lineup.contactNumber,
             company: lineup.customCompany || lineup.company,
             process: lineup.customProcess || lineup.process,
-            lineupDate: moment(lineup.lineupDate).format("MM/DD/YYYY"),
-            interviewDate: moment(lineup.interviewDate).format("MM/DD/YYYY"),
+            lineupDate: formatDate(lineup.lineupDate, "MM/DD/YYYY"),
+            interviewDate: formatDate(lineup.interviewDate, "MM/DD/YYYY"),
             status: lineup.status,
             remarks: lineup.remarks || "",
           });
@@ -417,7 +422,7 @@ const generateExcelReport = async (reportData, date) => {
             process: joining.process,
             joiningType: joining.joiningType,
             salary: joining.salary || "N/A",
-            joiningDate: moment(joining.joiningDate).format("MM/DD/YYYY"),
+            joiningDate: formatDate(joining.joiningDate, "MM/DD/YYYY"),
             status: joining.status,
             remarks: joining.remarks || "",
           });
@@ -433,7 +438,7 @@ const generateExcelReport = async (reportData, date) => {
   }
 
   // Save the workbook
-  const formattedDate = moment(date).format("YYYY-MM-DD");
+  const formattedDate = formatDate(date, "YYYY-MM-DD");
   const filePath = path.join(
     reportDir,
     `Daily_Employee_Report_${formattedDate}.xlsx`
@@ -451,7 +456,7 @@ const generateExcelReport = async (reportData, date) => {
 const sendDailyReportEmail = async (filePath, date) => {
   try {
     const transporter = createTransporter();
-    const formattedDate = moment(date).format("MMMM D, YYYY");
+    const formattedDate = formatDate(date, "MMMM D, YYYY");
 
     // Get admin emails from environment variables
     const adminEmails = [
@@ -505,9 +510,11 @@ const sendDailyReportEmail = async (filePath, date) => {
  * Generate and send daily report for a specific date
  * @param {Date} date - Date to generate report for (defaults to today)
  */
-const generateAndSendDailyReport = async (date = new Date()) => {
+const generateAndSendDailyReport = async (date = getCurrentDate()) => {
   try {
-    console.log(`Generating daily report for ${date.toDateString()}`);
+    console.log(
+      `Generating daily report for ${formatDate(date, "YYYY-MM-DD")}`
+    );
 
     // Generate report data
     const reportData = await generateEmployeeReportData(date);
@@ -524,7 +531,10 @@ const generateAndSendDailyReport = async (date = new Date()) => {
     await sendDailyReportEmail(filePath, date);
 
     console.log(
-      `Daily report generated and sent successfully for ${date.toDateString()}`
+      `Daily report generated and sent successfully for ${formatDate(
+        date,
+        "YYYY-MM-DD"
+      )}`
     );
   } catch (error) {
     console.error("Error generating and sending daily report:", error);
@@ -533,9 +543,9 @@ const generateAndSendDailyReport = async (date = new Date()) => {
 
 // Schedule daily report at 8:00 PM Indian time
 const scheduleDailyReport = () => {
-  // Convert 8:00 PM IST to server's timezone for cron
+  // Use moment to calculate the server cron time for 8:00 PM IST
   const serverTime = moment()
-    .tz("Asia/Kolkata")
+    .tz(IST_TIMEZONE)
     .set({ hour: 20, minute: 0, second: 0 })
     .local();
   const cronHour = serverTime.hour();

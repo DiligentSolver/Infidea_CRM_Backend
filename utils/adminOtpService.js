@@ -3,6 +3,7 @@ const { generateOTP } = require("./otpGenerator");
 const adminLoginOtpTemplate = require("./emailTemplates/adminLoginOtpTemplate");
 const adminLogoutNotificationTemplate = require("./emailTemplates/adminLogoutNotificationTemplate");
 const { client, connectRedis } = require("./redisClient");
+const { formatDate, toLocaleTimeString } = require("./dateUtils");
 
 /**
  * Send login OTP to admin emails for employee verification
@@ -19,8 +20,11 @@ const sendLoginVerificationOTP = async (employee) => {
   // Generate OTP
   const otp = generateOTP();
 
-  // Current date and time
-  const currentTime = new Date().toLocaleString();
+  // Current date and time formatted using dateUtils
+  const currentTime = `${formatDate(
+    new Date(),
+    "DD/MM/YYYY"
+  )} ${toLocaleTimeString(new Date())}`;
 
   // Get admin emails from env variables
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
@@ -78,8 +82,11 @@ const sendLogoutNotification = async (employee) => {
     throw new Error("Employee details are required");
   }
 
-  // Current date and time
-  const logoutTime = new Date().toLocaleString();
+  // Current date and time formatted using dateUtils
+  const logoutTime = `${formatDate(
+    new Date(),
+    "DD/MM/YYYY"
+  )} ${toLocaleTimeString(new Date())}`;
 
   // Get admin emails from env variables
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;

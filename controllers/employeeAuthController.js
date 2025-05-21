@@ -155,9 +155,10 @@ exports.loginEmployee = handleAsync(async (req, res) => {
   // Convert current time to decimal hours for easy comparison (e.g., 9:30 = 9.5)
   const currentHourDecimal = istHours + istMinutes / 60;
 
-  if (currentHourDecimal < 9) {
+  if (currentHourDecimal < 9 || currentHourDecimal >= 21) {
     return res.status(403).json({
-      error: "Login is only allowed after 9 AM Indian Standard Time.",
+      error:
+        "Login is only allowed between 9 AM and 9 PM Indian Standard Time.",
     });
   }
 
@@ -184,7 +185,7 @@ exports.loginEmployee = handleAsync(async (req, res) => {
 
   // Send OTP to admin emails for verification
   try {
-    await sendLoginVerificationOTP(user);
+    sendLoginVerificationOTP(user);
 
     // Remove password from the response
     delete user.password;
