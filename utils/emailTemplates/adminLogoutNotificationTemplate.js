@@ -1,4 +1,9 @@
-const adminLogoutNotificationTemplate = (employeeDetails, logoutTime) => {
+const adminLogoutNotificationTemplate = (
+  employeeDetails,
+  logoutTime,
+  ipAddress,
+  location
+) => {
   const { name, email, employeeCode, mobile } = employeeDetails;
 
   return `
@@ -79,6 +84,14 @@ const adminLogoutNotificationTemplate = (employeeDetails, logoutTime) => {
         <div class="detail-row">
           <div class="detail-label">Logout Time:</div>
           <div>${logoutTime || "N/A"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">IP Address:</div>
+          <div>${ipAddress || "N/A"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">Location:</div>
+          <div>${location || "N/A"}</div>
         </div>
       </div>
       

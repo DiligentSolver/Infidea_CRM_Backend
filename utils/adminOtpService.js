@@ -4,13 +4,15 @@ const adminLoginOtpTemplate = require("./emailTemplates/adminLoginOtpTemplate");
 const adminLogoutNotificationTemplate = require("./emailTemplates/adminLogoutNotificationTemplate");
 const { client, connectRedis } = require("./redisClient");
 const { formatDate, toLocaleTimeString } = require("./dateUtils");
+const geoip = require("geoip-lite");
 
 /**
  * Send login OTP to admin emails for employee verification
  * @param {Object} employee - Employee details
+ * @param {String} ipAddress - IP address of the employee
  * @returns {String} - Generated OTP
  */
-const sendLoginVerificationOTP = async (employee) => {
+const sendLoginVerificationOTP = async (employee, ipAddress) => {
   if (!employee) {
     throw new Error("Employee details are required");
   }
@@ -26,13 +28,47 @@ const sendLoginVerificationOTP = async (employee) => {
     "DD/MM/YYYY"
   )} ${toLocaleTimeString(new Date())}`;
 
+  // Handle IP address and location
+  let displayIp = ipAddress || "Unknown";
+  let locationInfo = "Unknown";
+
+  // Check if it's a localhost IP
+  if (
+    ipAddress &&
+    (ipAddress === "::1" ||
+      ipAddress === "127.0.0.1" ||
+      ipAddress.includes("localhost"))
+  ) {
+    displayIp = "Local Network";
+    locationInfo = "Internal Access";
+  } else if (ipAddress && ipAddress !== "Unknown") {
+    // For non-localhost IPs, try to get location
+    try {
+      const geo = geoip.lookup(ipAddress);
+      if (geo) {
+        locationInfo = `${geo.city || "Unknown City"}, ${geo.region || ""} ${
+          geo.country || "Unknown Country"
+        }`;
+        locationInfo = locationInfo.trim().replace(/\s+/g, " ");
+      }
+    } catch (error) {
+      console.error("Error looking up IP location:", error);
+    }
+  }
+
   // Get admin emails from env variables
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
   const adminEmail = process.env.ADMIN_EMAIL;
   const supervisorEmail = process.env.SUPERVISOR_EMAIL;
 
   // Create email content with HTML template
-  const emailHtml = adminLoginOtpTemplate(employee, otp, currentTime);
+  const emailHtml = adminLoginOtpTemplate(
+    employee,
+    otp,
+    currentTime,
+    displayIp,
+    locationInfo
+  );
 
   // Construct list of recipients
   const recipients = [superAdminEmail, adminEmail, supervisorEmail].filter(
@@ -75,9 +111,10 @@ const sendLoginVerificationOTP = async (employee) => {
 /**
  * Send logout notification to admin emails
  * @param {Object} employee - Employee details
+ * @param {String} ipAddress - IP address of the employee
  * @returns {Boolean} - True if emails were sent successfully
  */
-const sendLogoutNotification = async (employee) => {
+const sendLogoutNotification = async (employee, ipAddress) => {
   if (!employee) {
     throw new Error("Employee details are required");
   }
@@ -88,13 +125,46 @@ const sendLogoutNotification = async (employee) => {
     "DD/MM/YYYY"
   )} ${toLocaleTimeString(new Date())}`;
 
+  // Handle IP address and location
+  let displayIp = ipAddress || "Unknown";
+  let locationInfo = "Unknown";
+
+  // Check if it's a localhost IP
+  if (
+    ipAddress &&
+    (ipAddress === "::1" ||
+      ipAddress === "127.0.0.1" ||
+      ipAddress.includes("localhost"))
+  ) {
+    displayIp = "Local Network";
+    locationInfo = "Internal Access";
+  } else if (ipAddress && ipAddress !== "Unknown") {
+    // For non-localhost IPs, try to get location
+    try {
+      const geo = geoip.lookup(ipAddress);
+      if (geo) {
+        locationInfo = `${geo.city || "Unknown City"}, ${geo.region || ""} ${
+          geo.country || "Unknown Country"
+        }`;
+        locationInfo = locationInfo.trim().replace(/\s+/g, " ");
+      }
+    } catch (error) {
+      console.error("Error looking up IP location:", error);
+    }
+  }
+
   // Get admin emails from env variables
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
   const adminEmail = process.env.ADMIN_EMAIL;
   const supervisorEmail = process.env.SUPERVISOR_EMAIL;
 
   // Create email content with HTML template
-  const emailHtml = adminLogoutNotificationTemplate(employee, logoutTime);
+  const emailHtml = adminLogoutNotificationTemplate(
+    employee,
+    logoutTime,
+    displayIp,
+    locationInfo
+  );
 
   // Construct list of recipients
   const recipients = [superAdminEmail, adminEmail, supervisorEmail].filter(

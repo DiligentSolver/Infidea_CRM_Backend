@@ -19,7 +19,25 @@ const getCurrentDate = () => {
       .format("YYYY-MM-DD HH:mm:ss")}`
   );
 
+  // Return a Date object, but be aware that when methods like getHours() are called,
+  // they will convert back to the local system timezone
   return moment().tz(IST_TIMEZONE).toDate();
+};
+
+/**
+ * Get the current hour in IST (use this instead of getCurrentDate().getHours())
+ * @returns {Number} Current hour in IST (0-23)
+ */
+const getCurrentISTHour = () => {
+  return moment().tz(IST_TIMEZONE).hour();
+};
+
+/**
+ * Get the current minute in IST (use this instead of getCurrentDate().getMinutes())
+ * @returns {Number} Current minute in IST (0-59)
+ */
+const getCurrentISTMinute = () => {
+  return moment().tz(IST_TIMEZONE).minute();
 };
 
 /**
@@ -130,6 +148,8 @@ const compareDates = (date1, date2 = getCurrentDate()) => {
 module.exports = {
   IST_TIMEZONE,
   getCurrentDate,
+  getCurrentISTHour,
+  getCurrentISTMinute,
   formatToISOString,
   formatDate,
   startOfDay,

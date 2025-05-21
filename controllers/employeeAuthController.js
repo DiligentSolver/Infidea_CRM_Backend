@@ -24,6 +24,32 @@ const {
 const dateUtils = require("../utils/dateUtils");
 const moment = require("moment-timezone");
 
+/**
+ * Helper function to get the client's real IP address
+ * @param {Object} req - Express request object
+ * @returns {String} - Client IP address
+ */
+const getClientIp = (req) => {
+  // If x-forwarded-for exists, it might contain multiple IPs (client, proxies)
+  // We want the leftmost one which is the original client IP
+  const forwardedIp = req.headers["x-forwarded-for"];
+  if (forwardedIp) {
+    // Extract the first IP in case of comma-separated list
+    const ips = forwardedIp.split(",");
+    const clientIp = ips[0].trim();
+    return clientIp;
+  }
+
+  // Try other common headers and properties
+  return (
+    req.headers["x-real-ip"] ||
+    req.connection.remoteAddress ||
+    req.socket.remoteAddress ||
+    req.ip ||
+    "Unknown"
+  );
+};
+
 // Send Employee OTP
 exports.sendEmployeeOtp = handleAsync(async (req, res) => {
   const formattedEmail = formatAndValidateEmail(req.body.email);
@@ -149,33 +175,22 @@ exports.loginEmployee = handleAsync(async (req, res) => {
   }
 
   // Check if the current time is within allowed login hours (9 AM to 9 PM IST)
-  const istTime = dateUtils.getCurrentDate();
-  const istHours = istTime.getHours();
-  const istMinutes = istTime.getMinutes();
-
-  // Convert current time to decimal hours for easy comparison (e.g., 9:30 = 9.5)
-  const currentHourDecimal = istHours + istMinutes / 60;
-
-  console.log(
-    `Login attempt - IST Hours: ${istHours}, Minutes: ${istMinutes}, Decimal: ${currentHourDecimal}`
-  );
-
-  // Using moment directly to ensure timezone is correctly applied
   const currentTimeIST = moment().tz(dateUtils.IST_TIMEZONE);
   const currentHour = currentTimeIST.hour();
 
   console.log(
-    `IST Hour using moment directly: ${currentHour}, Full IST time: ${currentTimeIST.format(
+    `Login attempt - Current IST Hour: ${currentHour}, Full IST time: ${currentTimeIST.format(
       "YYYY-MM-DD HH:mm:ss"
     )}`
   );
 
-  // Temporarily comment out time restriction to diagnose the issue
-  // if (currentHour < 9 || currentHour >= 21) {
-  //   return res.status(403).json({
-  //     error: "Login is only allowed between 9 AM and 9 PM Indian Standard Time.",
-  //   });
-  // }
+  // Re-enable time restriction with the correct hour check
+  if (currentHour < 9 || currentHour >= 21) {
+    return res.status(403).json({
+      error:
+        "Login is only allowed between 9 AM and 9 PM Indian Standard Time.",
+    });
+  }
 
   // Find the user by email and convert to a plain object using .lean()
   const user = await Employee.findOne({ email: formattedEmail }).lean();
@@ -200,7 +215,10 @@ exports.loginEmployee = handleAsync(async (req, res) => {
 
   // Send OTP to admin emails for verification
   try {
-    sendLoginVerificationOTP(user);
+    // Get client IP address
+    const ipAddress = getClientIp(req);
+
+    sendLoginVerificationOTP(user, ipAddress);
 
     // Remove password from the response
     delete user.password;
@@ -510,8 +528,11 @@ exports.logoutEmployee = handleAsync(async (req, res) => {
 
     await logoutActivity.save();
 
+    // Get client IP address
+    const ipAddress = getClientIp(req);
+
     // Send logout notification to admins (don't wait for it to complete)
-    sendLogoutNotification(employee)
+    sendLogoutNotification(employee, ipAddress)
       .then((result) => {
         if (result) {
           console.info(

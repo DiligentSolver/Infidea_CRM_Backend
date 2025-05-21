@@ -1,4 +1,10 @@
-const adminLoginOtpTemplate = (employeeDetails, otp, loginTime) => {
+const adminLoginOtpTemplate = (
+  employeeDetails,
+  otp,
+  loginTime,
+  ipAddress,
+  location
+) => {
   const { name, email, employeeCode, mobile } = employeeDetails;
 
   return `
@@ -90,6 +96,14 @@ const adminLoginOtpTemplate = (employeeDetails, otp, loginTime) => {
         <div class="detail-row">
           <div class="detail-label">Login Time:</div>
           <div>${loginTime || "N/A"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">IP Address:</div>
+          <div>${ipAddress || "N/A"}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">Location:</div>
+          <div>${location || "N/A"}</div>
         </div>
       </div>
       

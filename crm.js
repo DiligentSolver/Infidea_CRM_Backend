@@ -36,6 +36,10 @@ const { IST_TIMEZONE } = require("./utils/dateUtils");
 dotenv.config();
 connectDB();
 
+// Configure Express to trust proxies for accurate IP detection
+// This allows req.ip to return the correct client IP when behind a proxy
+app.set("trust proxy", true);
+
 // Initialize scheduled tasks
 scheduleActivityClosing();
 initScheduler(); // Initialize candidate lock scheduler
