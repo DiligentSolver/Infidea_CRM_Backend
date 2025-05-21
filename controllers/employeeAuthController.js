@@ -22,6 +22,7 @@ const {
 } = require("../utils/attemptAndOtp");
 
 const dateUtils = require("../utils/dateUtils");
+const moment = require("moment-timezone");
 
 // Send Employee OTP
 exports.sendEmployeeOtp = handleAsync(async (req, res) => {
@@ -155,12 +156,26 @@ exports.loginEmployee = handleAsync(async (req, res) => {
   // Convert current time to decimal hours for easy comparison (e.g., 9:30 = 9.5)
   const currentHourDecimal = istHours + istMinutes / 60;
 
-  if (currentHourDecimal < 9 || currentHourDecimal >= 21) {
-    return res.status(403).json({
-      error:
-        "Login is only allowed between 9 AM and 9 PM Indian Standard Time.",
-    });
-  }
+  console.log(
+    `Login attempt - IST Hours: ${istHours}, Minutes: ${istMinutes}, Decimal: ${currentHourDecimal}`
+  );
+
+  // Using moment directly to ensure timezone is correctly applied
+  const currentTimeIST = moment().tz(dateUtils.IST_TIMEZONE);
+  const currentHour = currentTimeIST.hour();
+
+  console.log(
+    `IST Hour using moment directly: ${currentHour}, Full IST time: ${currentTimeIST.format(
+      "YYYY-MM-DD HH:mm:ss"
+    )}`
+  );
+
+  // Temporarily comment out time restriction to diagnose the issue
+  // if (currentHour < 9 || currentHour >= 21) {
+  //   return res.status(403).json({
+  //     error: "Login is only allowed between 9 AM and 9 PM Indian Standard Time.",
+  //   });
+  // }
 
   // Find the user by email and convert to a plain object using .lean()
   const user = await Employee.findOne({ email: formattedEmail }).lean();

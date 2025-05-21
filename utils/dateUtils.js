@@ -11,6 +11,14 @@ const IST_TIMEZONE = "Asia/Kolkata";
  * @returns {Date} Current date-time in IST
  */
 const getCurrentDate = () => {
+  // Add debug logging to help troubleshoot timezone issues
+  console.log(`Current UTC time: ${new Date().toISOString()}`);
+  console.log(
+    `Current IST time (moment): ${moment()
+      .tz(IST_TIMEZONE)
+      .format("YYYY-MM-DD HH:mm:ss")}`
+  );
+
   return moment().tz(IST_TIMEZONE).toDate();
 };
 
