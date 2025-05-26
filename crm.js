@@ -28,6 +28,7 @@ const {
   scheduleActivityClosing,
   scheduleNotificationCleanup,
   scheduleDailyActivityReset,
+  scheduleAutoLogout,
 } = require("./utils/scheduledTasks");
 const { initScheduler } = require("./utils/scheduler");
 const { scheduleDailyReport } = require("./utils/dailyReportGenerator");
@@ -46,6 +47,7 @@ app.set("trust proxy", true);
 scheduleActivityClosing();
 scheduleNotificationCleanup();
 scheduleDailyActivityReset(); // Add daily reset scheduler
+scheduleAutoLogout(); // Initialize auto logout scheduler
 initScheduler(); // Initialize candidate lock scheduler
 scheduleDailyReport(); // Initialize daily report scheduler at 8 PM
 

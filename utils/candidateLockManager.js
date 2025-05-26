@@ -54,7 +54,6 @@ const hasActiveJoining = async (contactNumber) => {
   try {
     const joining = await Joining.findOne({
       contactNumber,
-      status: "Joining Details Received",
     });
 
     return !!joining;

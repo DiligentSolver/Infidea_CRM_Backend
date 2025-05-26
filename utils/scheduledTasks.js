@@ -2,9 +2,15 @@ const cron = require("node-cron");
 const Activity = require("../models/activityModel");
 const Employee = require("../models/employeeModel");
 const { closeAllActiveActivities } = require("./activityUtils");
-const { getCurrentDate, addTime } = require("./dateUtils");
+const {
+  getCurrentDate,
+  addTime,
+  getCurrentISTHour,
+  getCurrentISTMinute,
+  IST_TIMEZONE,
+} = require("./dateUtils");
 const moment = require("moment-timezone");
-const { IST_TIMEZONE } = require("./dateUtils");
+const { io } = global;
 
 /**
  * Reset all activities at midnight and create new "On Desk" activities for next day
@@ -190,8 +196,54 @@ const scheduleNotificationCleanup = () => {
   console.log("Scheduled notification cleanup: Every day at 3:00 AM");
 };
 
+/**
+ * Schedule automatic logout of all employees at 7:58 PM IST daily
+ */
+const scheduleAutoLogout = () => {
+  // Schedule for 7:58 PM IST daily (19:58)
+  cron.schedule(
+    "58 19 * * *",
+    async () => {
+      try {
+        console.log("Running auto logout scheduler...");
+
+        // Find all currently logged in employees
+        const loggedInEmployees = await Employee.find({ isLoggedIn: true });
+
+        // Update all logged in employees to logged out
+        await Employee.updateMany(
+          { isLoggedIn: true },
+          {
+            $set: {
+              isLoggedIn: false,
+              lastLogoutTime: new Date(),
+            },
+          }
+        );
+
+        // Emit logout event to each employee
+        if (io) {
+          loggedInEmployees.forEach((employee) => {
+            io.to(`employee-${employee._id}`).emit("force_logout", {
+              message: "Auto logout at end of day (7:58 PM)",
+            });
+          });
+        }
+
+        console.log(`Auto logged out ${loggedInEmployees.length} employees`);
+      } catch (error) {
+        console.error("Error in auto logout scheduler:", error);
+      }
+    },
+    {
+      timezone: IST_TIMEZONE,
+    }
+  );
+};
+
 module.exports = {
   scheduleActivityClosing,
   scheduleNotificationCleanup,
   scheduleDailyActivityReset,
+  scheduleAutoLogout,
 };

@@ -9,7 +9,6 @@ const Joining = require("../models/joiningModel");
 const isWalkinInActiveJoining = async (contactNumber) => {
   const activeJoining = await Joining.findOne({
     contactNumber,
-    status: "Joining Details Received",
   });
 
   return !!activeJoining;
