@@ -1,5 +1,7 @@
 const Activity = require("../models/activityModel");
 const { closeAllActiveActivities } = require("../utils/activityUtils");
+const moment = require("moment-timezone");
+const { IST_TIMEZONE } = require("../utils/dateUtils");
 
 // Define time limits for activities
 const timeLimits = {
@@ -13,9 +15,18 @@ const timeLimits = {
 
 // Helper function to check if current time is after 9 PM
 const isAfter9PM = () => {
-  const now = new Date();
-  const hours = now.getHours();
+  const now = moment().tz(IST_TIMEZONE);
+  const hours = now.hours();
   return hours >= 21; // 9 PM = 21:00 in 24-hour format
+};
+
+// Helper function to validate no other active activities exist
+const validateNoActiveActivities = async (employeeId) => {
+  const activeActivities = await Activity.find({ employeeId, isActive: true });
+  if (activeActivities.length > 0) {
+    // Close any existing active activities
+    await closeAllActiveActivities(employeeId);
+  }
 };
 
 // Start a new activity (or switch activity)
@@ -24,8 +35,17 @@ exports.startActivity = async (req, res) => {
     const { type } = req.body;
     const employeeId = req.employee._id;
 
+    // Validate activity type
+    if (!Object.keys(timeLimits).includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid activity type",
+      });
+    }
+
     // Check if it's after 9 PM
     if (isAfter9PM()) {
+      await closeAllActiveActivities(employeeId);
       return res.status(403).json({
         success: false,
         message:
@@ -33,37 +53,30 @@ exports.startActivity = async (req, res) => {
       });
     }
 
-    // Find any current active activity and end it
-    const currentActivity = await Activity.findOne({
-      employeeId,
-      isActive: true,
-    });
+    // Ensure no other active activities exist
+    await validateNoActiveActivities(employeeId);
 
-    if (currentActivity) {
-      // If current activity is the same type, don't do anything
-      if (currentActivity.type === type) {
-        return res.status(200).json({
-          success: true,
-          message: "Already on this activity",
-          activity: currentActivity,
-          timeLimit: timeLimits[type],
-        });
-      }
-
-      // Otherwise, end the current activity
-      currentActivity.endTime = new Date();
-      currentActivity.isActive = false;
-      await currentActivity.save();
-    }
+    const now = moment().tz(IST_TIMEZONE).toDate();
 
     // Create new activity
     const newActivity = new Activity({
       employeeId,
       type,
-      startTime: new Date(),
+      startTime: now,
     });
 
-    await newActivity.save();
+    try {
+      await newActivity.save();
+    } catch (error) {
+      if (error.code === 11000) {
+        // Duplicate key error
+        // Another activity was started concurrently, close it and retry
+        await closeAllActiveActivities(employeeId);
+        await newActivity.save();
+      } else {
+        throw error;
+      }
+    }
 
     return res.status(201).json({
       success: true,
@@ -101,42 +114,106 @@ exports.getCurrentActivity = async (req, res) => {
       });
     }
 
-    const currentActivity = await Activity.findOne({
+    // Ensure only one active activity exists
+    const activeActivities = await Activity.find({
       employeeId,
       isActive: true,
     });
 
-    if (!currentActivity) {
-      // No active activity, create "On Desk" by default
+    if (activeActivities.length > 1) {
+      // If multiple active activities found, close all and create new "On Desk"
+      await closeAllActiveActivities(employeeId);
+      const now = moment().tz(IST_TIMEZONE).toDate();
+
       const defaultActivity = new Activity({
         employeeId,
         type: "On Desk",
-        startTime: new Date(),
+        startTime: now,
       });
 
       await defaultActivity.save();
 
       return res.status(200).json({
         success: true,
-        message: "Default activity created",
+        message:
+          "Multiple activities found and resolved. Created default activity.",
         activity: defaultActivity,
         shouldBlock: false,
-        timeLimit: null, // No time limit for "On Desk"
+        timeLimit: null,
       });
     }
 
-    // Check if the current activity should block the UI
-    const shouldBlock = currentActivity.type !== "On Desk";
+    const currentActivity = activeActivities[0];
 
-    // Get time limit for current activity type (if any)
-    const timeLimit = timeLimits[currentActivity.type];
+    if (currentActivity) {
+      // Check if the activity is stale (more than 24 hours old)
+      const activityStartTime = moment(currentActivity.startTime);
+      const now = moment().tz(IST_TIMEZONE);
+      const hoursDifference = now.diff(activityStartTime, "hours");
+
+      if (hoursDifference >= 24) {
+        // Close the stale activity
+        await closeAllActiveActivities(employeeId);
+
+        // Create a system logout activity for the stale activity
+        const logoutActivity = new Activity({
+          employeeId,
+          type: "Logout",
+          startTime: now.toDate(),
+          endTime: now.toDate(),
+          isActive: false,
+        });
+        await logoutActivity.save();
+
+        // Create new "On Desk" activity
+        const defaultActivity = new Activity({
+          employeeId,
+          type: "On Desk",
+          startTime: now.toDate(),
+        });
+
+        await defaultActivity.save();
+
+        return res.status(200).json({
+          success: true,
+          message:
+            "Stale activity detected and reset. Created new default activity.",
+          activity: defaultActivity,
+          shouldBlock: false,
+          timeLimit: null,
+        });
+      }
+
+      // Activity is not stale, return it
+      const shouldBlock = currentActivity.type !== "On Desk";
+      const timeLimit = timeLimits[currentActivity.type];
+
+      return res.status(200).json({
+        success: true,
+        message: "Current activity retrieved",
+        activity: currentActivity,
+        shouldBlock,
+        timeLimit,
+      });
+    }
+
+    // No active activity, create "On Desk" by default
+    const now = moment().tz(IST_TIMEZONE).toDate();
+
+    const defaultActivity = new Activity({
+      employeeId,
+      type: "On Desk",
+      startTime: now,
+    });
+
+    await defaultActivity.save();
 
     return res.status(200).json({
       success: true,
-      message: "Current activity retrieved",
-      activity: currentActivity,
-      shouldBlock,
-      timeLimit,
+      message: "Default activity created",
+      activity: defaultActivity,
+      shouldBlock: false,
+      timeLimit: null, // No time limit for "On Desk"
     });
   } catch (error) {
     console.error("Get current activity error:", error);
@@ -152,38 +229,30 @@ exports.getCurrentActivity = async (req, res) => {
 exports.goOnDesk = async (req, res) => {
   try {
     const employeeId = req.employee._id;
+    const now = moment().tz(IST_TIMEZONE).toDate();
 
-    // Find any current active activity and end it
-    const currentActivity = await Activity.findOne({
-      employeeId,
-      isActive: true,
-    });
-
-    if (currentActivity) {
-      // If already on desk, don't do anything
-      if (currentActivity.type === "On Desk") {
-        return res.status(200).json({
-          success: true,
-          message: "Already on desk",
-          activity: currentActivity,
-          timeLimit: null, // No time limit for "On Desk"
-        });
-      }
-
-      // End the current activity
-      currentActivity.endTime = new Date();
-      currentActivity.isActive = false;
-      await currentActivity.save();
-    }
+    // Ensure no other active activities exist
+    await validateNoActiveActivities(employeeId);
 
     // Create new "On Desk" activity
     const onDeskActivity = new Activity({
       employeeId,
       type: "On Desk",
-      startTime: new Date(),
+      startTime: now,
     });
 
-    await onDeskActivity.save();
+    try {
+      await onDeskActivity.save();
+    } catch (error) {
+      if (error.code === 11000) {
+        // Duplicate key error
+        // Another activity was started concurrently, close it and retry
+        await closeAllActiveActivities(employeeId);
+        await onDeskActivity.save();
+      } else {
+        throw error;
+      }
+    }
 
     return res.status(200).json({
       success: true,

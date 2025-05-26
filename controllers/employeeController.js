@@ -23,6 +23,8 @@ const sendEmployeeDetails = handleAsync(async (req, res) => {
 const updateEmployeeProfile = handleAsync(async (req, res) => {
   const { profileData } = req.body;
 
+  console.log(profileData);
+
   const formattedEmail = formatAndValidateEmail(profileData.email);
   const formattedMobile = formatAndValidateMobile(profileData.mobile);
 
@@ -95,9 +97,46 @@ const updateProfilePicture = handleAsync(async (req, res) => {
     .json({ message: "Profile picture updated successfully" });
 });
 
+const getUserTheme = handleAsync(async (req, res) => {
+  const employee = await Employee.findById(req.employee._id).select("theme");
+  if (!employee) {
+    return res.status(404).json({ message: "Employee not found" });
+  }
+  return res.status(200).json({ theme: employee.theme });
+});
+
+const updateUserTheme = handleAsync(async (req, res) => {
+  const { theme } = req.body;
+
+  if (!theme || !["light", "dark"].includes(theme)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid theme value. Must be either 'light' or 'dark'",
+    });
+  }
+
+  const employee = await Employee.findById(req.employee._id);
+  if (!employee) {
+    return res.status(404).json({
+      success: false,
+      message: "Employee not found",
+    });
+  }
+
+  employee.theme = theme;
+  await employee.save();
+
+  return res.status(200).json({
+    success: true,
+    message: "Theme updated successfully",
+  });
+});
+
 module.exports = {
   sendEmployeeDetails,
   updateEmployeeProfile,
   updateProfilePicture,
   getProfileImageUrl,
+  getUserTheme,
+  updateUserTheme,
 };

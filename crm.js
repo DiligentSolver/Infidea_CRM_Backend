@@ -27,11 +27,13 @@ const path = require("path");
 const {
   scheduleActivityClosing,
   scheduleNotificationCleanup,
+  scheduleDailyActivityReset,
 } = require("./utils/scheduledTasks");
 const { initScheduler } = require("./utils/scheduler");
 const { scheduleDailyReport } = require("./utils/dailyReportGenerator");
 const moment = require("moment-timezone");
 const { IST_TIMEZONE } = require("./utils/dateUtils");
+const clientDetailsRoutes = require("./routes/clientDetails");
 
 dotenv.config();
 connectDB();
@@ -42,6 +44,8 @@ app.set("trust proxy", true);
 
 // Initialize scheduled tasks
 scheduleActivityClosing();
+scheduleNotificationCleanup();
+scheduleDailyActivityReset(); // Add daily reset scheduler
 initScheduler(); // Initialize candidate lock scheduler
 scheduleDailyReport(); // Initialize daily report scheduler at 8 PM
 
@@ -95,6 +99,7 @@ app.use("/crm/api/leaves", leaveRoutes);
 app.use("/crm/api/notifications", notificationRoutes);
 app.use("/crm/api/email", emailRoutes); // Add email routes
 app.use("/crm/api/thoughts", thoughtRoutes); // Add thought routes
+app.use("/crm/api/clients", clientDetailsRoutes); // Add client details routes
 
 // Configure file upload middleware
 app.use(

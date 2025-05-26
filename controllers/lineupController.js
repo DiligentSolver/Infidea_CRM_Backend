@@ -15,7 +15,6 @@ const isLineupInActiveJoining = async (contactNumber, company, process) => {
     contactNumber,
     company,
     process,
-    status: "Joining Details Received",
   });
 
   return !!activeJoining;
@@ -251,6 +250,12 @@ const getAllLineups = handleAsync(async (req, res) => {
       lineup.process
     );
 
+    const joining = await Joining.findOne({
+      contactNumber: lineup.contactNumber,
+      company: lineup.company,
+      process: lineup.process,
+    });
+
     // A lineup is not editable if it's part of an active joining
     const editable = !inActiveJoining;
 
@@ -258,6 +263,7 @@ const getAllLineups = handleAsync(async (req, res) => {
       ...lineup.toObject(),
       editable,
       hasActiveJoining: inActiveJoining,
+      joining,
     };
   });
 

@@ -9,6 +9,8 @@ const {
   updateEmployeeProfile,
   getProfileImageUrl,
   updateProfilePicture,
+  getUserTheme,
+  updateUserTheme,
 } = require("../controllers/employeeController");
 
 const {
@@ -109,5 +111,19 @@ router.put(
 
 // Daily report generation route (admin only)
 router.post("/generate-daily-report", generateDailyReport);
+
+router.get(
+  "/theme",
+  authMiddleware,
+  roleMiddleware(["employee"]),
+  getUserTheme
+);
+
+router.post(
+  "/theme",
+  authMiddleware,
+  roleMiddleware(["employee"]),
+  updateUserTheme
+);
 
 module.exports = router;

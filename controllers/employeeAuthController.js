@@ -298,11 +298,8 @@ exports.verifyLoginAdminOtp = handleAsync(async (req, res) => {
   // Generate JWT token
   const token = signInToken(user, "7d");
 
-  // Close only "On Desk" active activities
-  await Activity.updateMany(
-    { employeeId: user._id, type: "On Desk", endTime: null },
-    { endTime: dateUtils.getCurrentDate() }
-  );
+  // Close all active activities first
+  await closeAllActiveActivities(user._id);
 
   // Set today's date to start of day for accurate comparison
   const today = dateUtils.startOfDay();
@@ -342,7 +339,7 @@ exports.verifyLoginAdminOtp = handleAsync(async (req, res) => {
     currentActivity = new Activity({
       employeeId: user._id,
       type: "On Desk",
-      startTime: dateUtils.getCurrentDate(),
+      startTime: moment().tz(dateUtils.IST_TIMEZONE).toDate(),
     });
     await currentActivity.save();
   }
@@ -551,12 +548,14 @@ exports.logoutEmployee = handleAsync(async (req, res) => {
     // Close all active activities for this employee
     await closeAllActiveActivities(employeeId);
 
+    const now = moment().tz(dateUtils.IST_TIMEZONE).toDate();
+
     // Create logout activity record
     const logoutActivity = new Activity({
       employeeId,
       type: "Logout",
-      startTime: dateUtils.getCurrentDate(),
-      endTime: dateUtils.getCurrentDate(), // Logout is instantaneous
+      startTime: now,
+      endTime: now, // Logout is instantaneous
       isActive: false,
     });
 

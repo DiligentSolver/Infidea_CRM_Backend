@@ -54,7 +54,7 @@ const createDuplicityCheckNotification = async (
   try {
     const notificationData = {
       recipient: recipientEmployeeId,
-      message: `Someone is checking candidate ${candidateData.name} (${candidateData.mobileNo}) which you previously registered.`,
+      message: `Someone is checking candidate ${candidateData.name} ${candidateData.mobileNo} which you previously registered.`,
       type: "candidate_duplicity_check",
       metadata: {
         candidateId: candidateData._id,
@@ -85,7 +85,7 @@ const createCandidateMarkNotification = async (
   try {
     const notificationData = {
       recipient: recipientEmployeeId,
-      message: `Someone has marked candidate ${candidateData.name} (${candidateData.mobileNo}) which you previously registered.`,
+      message: `Someone has marked candidate ${candidateData.name} ${candidateData.mobileNo} which you previously registered.`,
       type: "candidate_marked",
       metadata: {
         candidateId: candidateData._id,

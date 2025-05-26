@@ -307,19 +307,14 @@ const getAllJoinings = handleAsync(async (req, res) => {
       new Date(joining.createdAt) <= lastDayOfMonth
   );
 
-  // Find eligible joinings for current month
-  const eligibleJoinings = currentMonthJoinings.filter((joining) =>
-    isEligibleStatus(joining.status)
-  );
-
-  // Count international, domestic, and mid-lateral joinings for current month
-  const internationalCount = eligibleJoinings.filter(
+  // Count all joinings for current month
+  const internationalCount = currentMonthJoinings.filter(
     (j) => j.joiningType === "International"
   ).length;
-  const domesticCount = eligibleJoinings.filter(
+  const domesticCount = currentMonthJoinings.filter(
     (j) => j.joiningType === "Domestic"
   ).length;
-  const midLateralCount = eligibleJoinings.filter(
+  const midLateralCount = currentMonthJoinings.filter(
     (j) => j.joiningType === "Mid-Lateral"
   ).length;
 

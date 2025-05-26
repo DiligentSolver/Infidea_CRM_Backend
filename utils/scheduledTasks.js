@@ -3,39 +3,163 @@ const Activity = require("../models/activityModel");
 const Employee = require("../models/employeeModel");
 const { closeAllActiveActivities } = require("./activityUtils");
 const { getCurrentDate, addTime } = require("./dateUtils");
+const moment = require("moment-timezone");
+const { IST_TIMEZONE } = require("./dateUtils");
+
+/**
+ * Reset all activities at midnight and create new "On Desk" activities for next day
+ */
+const scheduleDailyActivityReset = () => {
+  // Run at midnight (00:00) every day in IST
+  cron.schedule(
+    "0 0 * * *",
+    async () => {
+      try {
+        console.log("Running scheduled task: Daily activity reset at midnight");
+
+        // Get all employees with active activities
+        const employeesWithActiveActivities = await Activity.distinct(
+          "employeeId",
+          { isActive: true }
+        );
+
+        const now = moment().tz(IST_TIMEZONE).toDate();
+        let resetCount = 0;
+
+        // Close activities for each employee
+        for (const employeeId of employeesWithActiveActivities) {
+          try {
+            // Close all active activities
+            const closedActivities = await closeAllActiveActivities(employeeId);
+            resetCount += closedActivities.length;
+
+            // Create system logout activity
+            const logoutActivity = new Activity({
+              employeeId,
+              type: "Logout",
+              startTime: now,
+              endTime: now,
+              isActive: false,
+            });
+            await logoutActivity.save();
+          } catch (error) {
+            console.error(
+              `Error in daily reset for employee ${employeeId}:`,
+              error
+            );
+            continue;
+          }
+        }
+
+        console.log(
+          `Daily reset completed: Closed ${resetCount} activities for ${employeesWithActiveActivities.length} employees at ${now}`
+        );
+      } catch (error) {
+        console.error("Error in daily activity reset task:", error);
+      }
+    },
+    {
+      timezone: IST_TIMEZONE,
+    }
+  );
+
+  console.log(
+    "Scheduled task registered: Daily activity reset at midnight IST"
+  );
+};
 
 /**
  * Scheduled task to close all active activities at 9 PM every day
  */
 const scheduleActivityClosing = () => {
-  // Run at 9 PM (21:00) every day
-  cron.schedule("0 21 * * *", async () => {
-    try {
-      console.log("Running scheduled task: Auto-closing activities at 9 PM");
+  // Run at 9 PM (21:00) every day in IST
+  cron.schedule(
+    "0 21 * * *",
+    async () => {
+      try {
+        console.log("Running scheduled task: Auto-closing activities at 9 PM");
 
-      // Get all employees with active activities
-      const employeesWithActiveActivities = await Activity.distinct(
-        "employeeId",
-        { isActive: true }
-      );
+        // Get all employees with active activities
+        const employeesWithActiveActivities = await Activity.distinct(
+          "employeeId",
+          { isActive: true }
+        );
 
-      let closedCount = 0;
+        let closedCount = 0;
+        const now = moment().tz(IST_TIMEZONE).toDate();
 
-      // Close activities for each employee
-      for (const employeeId of employeesWithActiveActivities) {
-        const closedActivities = await closeAllActiveActivities(employeeId);
-        closedCount += closedActivities.length;
+        // Close activities for each employee
+        for (const employeeId of employeesWithActiveActivities) {
+          try {
+            const closedActivities = await closeAllActiveActivities(employeeId);
+
+            // Create a "System Logout" activity
+            const logoutActivity = new Activity({
+              employeeId,
+              type: "Logout",
+              startTime: now,
+              endTime: now,
+              isActive: false,
+            });
+            await logoutActivity.save();
+
+            closedCount += closedActivities.length;
+          } catch (error) {
+            console.error(
+              `Error closing activities for employee ${employeeId}:`,
+              error
+            );
+            // Continue with next employee
+            continue;
+          }
+        }
+
+        console.log(
+          `Auto-closed ${closedCount} activities for ${employeesWithActiveActivities.length} employees at ${now}`
+        );
+      } catch (error) {
+        console.error("Error in scheduled activity closing task:", error);
       }
-
-      console.log(
-        `Auto-closed ${closedCount} activities for ${employeesWithActiveActivities.length} employees`
-      );
-    } catch (error) {
-      console.error("Error in scheduled activity closing task:", error);
+    },
+    {
+      timezone: IST_TIMEZONE,
     }
-  });
+  );
 
-  console.log("Scheduled task registered: Auto-closing activities at 9 PM");
+  // Also schedule a safety check at 9:05 PM to catch any activities that weren't closed
+  cron.schedule(
+    "5 21 * * *",
+    async () => {
+      try {
+        console.log("Running safety check for unclosed activities");
+
+        const activeActivities = await Activity.find({ isActive: true });
+        if (activeActivities.length > 0) {
+          console.log(
+            `Found ${activeActivities.length} unclosed activities in safety check`
+          );
+
+          for (const activity of activeActivities) {
+            try {
+              await closeAllActiveActivities(activity.employeeId);
+            } catch (error) {
+              console.error(
+                `Error in safety check closing for employee ${activity.employeeId}:`,
+                error
+              );
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error in activity closing safety check:", error);
+      }
+    },
+    {
+      timezone: IST_TIMEZONE,
+    }
+  );
+
+  console.log("Scheduled task registered: Auto-closing activities at 9 PM IST");
 };
 
 // Function to clean up old notifications (older than 30 days)
@@ -69,4 +193,5 @@ const scheduleNotificationCleanup = () => {
 module.exports = {
   scheduleActivityClosing,
   scheduleNotificationCleanup,
+  scheduleDailyActivityReset,
 };

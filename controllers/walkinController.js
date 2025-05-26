@@ -2,10 +2,7 @@ const Walkin = require("../models/walkinModel");
 const { handleAsync } = require("../utils/attemptAndOtp");
 const mongoose = require("mongoose");
 const Candidate = require("../models/candidateModel");
-const {
-  checkCandidateLock,
-  lockCandidate,
-} = require("../utils/candidateLockManager");
+const { checkCandidateLock } = require("../utils/candidateLockManager");
 const Joining = require("../models/joiningModel");
 
 // Helper function to check if a walkin candidate is part of an active joining
@@ -20,11 +17,11 @@ const isWalkinInActiveJoining = async (contactNumber) => {
 
 // Create a new walkin
 const createWalkin = handleAsync(async (req, res) => {
-  const { candidateName, contactNumber, walkinDate, remarks } = req.body;
+  const { candidateName, contactNumber, walkinDate, walkinRemarks } = req.body;
 
   console.log(req.body);
 
-  if (!candidateName || !contactNumber || !walkinDate || !remarks) {
+  if (!candidateName || !contactNumber || !walkinDate || !walkinRemarks) {
     return res.status(400).json({
       success: false,
       message: "All required fields must be provided",
@@ -42,13 +39,6 @@ const createWalkin = handleAsync(async (req, res) => {
 
   // Check if candidate exists with this contact number
   const candidate = await Candidate.findOne({ mobileNo: contactNumber });
-  if (!candidate) {
-    return res.status(404).json({
-      success: false,
-      message:
-        "No candidate found with this contact number. Please register the candidate first.",
-    });
-  }
 
   // Check if candidate is locked by a different employee
   const lockStatus = await checkCandidateLock(contactNumber);
@@ -75,14 +65,14 @@ const createWalkin = handleAsync(async (req, res) => {
     candidateName,
     contactNumber,
     walkinDate,
-    remarks,
+    walkinRemarks,
     createdBy: req.employee._id,
   });
 
   // Update candidate's walkinDate if candidate exists
   if (candidate) {
     const remarkHistory = {
-      remark: remarks,
+      remark: walkinRemarks,
       date: Date.now(),
       employee: req.employee._id,
     };
@@ -93,7 +83,7 @@ const createWalkin = handleAsync(async (req, res) => {
       callStatus: "Walkin at Infidea",
       lastRegisteredBy: req.employee._id,
       $push: {
-        remarks: remarkHistory,
+        walkinRemarksHistory: remarkHistory,
         callStatusHistory: {
           status: "Walkin at Infidea",
           date: Date.now(),

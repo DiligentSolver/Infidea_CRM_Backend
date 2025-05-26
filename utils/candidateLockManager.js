@@ -32,6 +32,7 @@ const unlockExpiredCandidates = async () => {
         $set: {
           isLocked: false,
           registrationLockExpiry: null,
+          callStatus: "Not Aligned Anywhere",
         },
       }
     );

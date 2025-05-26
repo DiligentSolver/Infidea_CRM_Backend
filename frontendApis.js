@@ -415,6 +415,7 @@ const jobProfiles = [
   "Admin Executive",
   "Area Sales Manager",
   "Backend Developer",
+  "BPO",
   "Business Development Executive",
   "Business Development Manager",
   "Call Center Agent",

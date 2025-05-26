@@ -12,7 +12,6 @@ const {
   JOINING_LOCK_DAYS,
 } = require("../utils/candidateLockManager");
 const BulkUploadCount = require("../models/bulkUploadCountModel");
-const mongoose = require("mongoose");
 const dateUtils = require("../utils/dateUtils");
 const Joining = require("../models/joiningModel");
 
@@ -99,6 +98,28 @@ exports.checkDulicateInputField = handleAsync(async (req, res, next) => {
     });
   }
 
+  // Store the previous owner's ID before we change it
+  const previousOwnerId = candidate.lastRegisteredBy
+    ? candidate.lastRegisteredBy._id
+    : null;
+
+  // Send notification to the previous owner
+  if (previousOwnerId) {
+    try {
+      const markingEmployee = await Employee.findById(req.employee._id);
+
+      await createDuplicityCheckNotification(
+        candidate,
+        markingEmployee,
+        previousOwnerId,
+        req.io
+      );
+    } catch (error) {
+      console.error("Error sending notification:", error);
+      // Continue with the response even if notification fails
+    }
+  }
+
   // Check if current employee is the last registered by
   const isLastRegisteredBy =
     candidate.lastRegisteredBy &&
@@ -142,28 +163,6 @@ exports.checkDulicateInputField = handleAsync(async (req, res, next) => {
       const hours = Math.floor(diffMs / (1000 * 60 * 60));
       const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
       remainingTime = `${hours}h ${minutes}m`;
-    }
-
-    // Store the previous owner's ID before we change it
-    const previousOwnerId = candidate.lastRegisteredBy
-      ? candidate.lastRegisteredBy._id
-      : null;
-
-    // Send notification to the previous owner
-    if (previousOwnerId) {
-      try {
-        const markingEmployee = await Employee.findById(req.employee._id);
-
-        await createDuplicityCheckNotification(
-          candidate,
-          markingEmployee,
-          previousOwnerId,
-          req.io
-        );
-      } catch (error) {
-        console.error("Error sending notification:", error);
-        // Continue with the response even if notification fails
-      }
     }
 
     return res.status(400).json({
@@ -197,6 +196,16 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
     });
   }
 
+  // Check if candidate has an active joining
+  const joiningActive = hasActiveJoining(candidate.mobileNo);
+  if (joiningActive) {
+    return res.status(400).json({
+      status: "fail",
+      message: "Cannot mark candidate with active joining",
+      hasActiveJoining: true,
+    });
+  }
+
   if (
     candidate.isLocked &&
     candidate.registrationLockExpiry > dateUtils.getCurrentDate()
@@ -224,22 +233,19 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
     candidate.lastRegisteredBy &&
     candidate.lastRegisteredBy._id.toString() === req.employee._id.toString();
 
-  // Check if current employee already exists in registration history
+  // Check if current employee already exists in registration history with Active status
   let alreadyInHistory = false;
   if (
     candidate.registrationHistory &&
     candidate.registrationHistory.length > 0
   ) {
-    for (const entry of candidate.registrationHistory) {
-      if (
+    alreadyInHistory = candidate.registrationHistory.some(
+      (entry) =>
         entry.registeredBy &&
         entry.registeredBy._id &&
-        entry.registeredBy._id.toString() === req.employee._id.toString()
-      ) {
-        alreadyInHistory = true;
-        break;
-      }
-    }
+        entry.registeredBy._id.toString() === req.employee._id.toString() &&
+        entry.status === "Active"
+    );
   }
 
   if (alreadyInHistory || isLastRegisteredBy) {
@@ -255,34 +261,49 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
     ? candidate.lastRegisteredBy._id
     : null;
 
-  // Update registration history
+  // Mark all existing active registrations as expired
+  if (candidate.registrationHistory) {
+    candidate.registrationHistory.forEach((entry) => {
+      if (entry.status === "Active") {
+        entry.status = "Expired";
+      }
+    });
+  }
+
+  // Add new registration history entry
   candidate.registrationHistory.push({
     registeredBy: req.employee._id,
     registrationDate: dateUtils.getCurrentDate(),
     status: "Active",
   });
 
-  // Mark previous history entries as expired
-  candidate.registrationHistory.forEach((entry) => {
-    if (entry.status === "Active") {
-      entry.status = "Expired";
-    }
-  });
-
-  // Update the lastRegisteredBy to the current employee but DON'T lock the candidate on marking
+  // Update the lastRegisteredBy to the current employee
   candidate.lastRegisteredBy = req.employee._id;
 
-  // Important: When marking a candidate, we DO NOT lock them regardless of status
+  // Important: When marking a candidate, we DO NOT lock them
   candidate.isLocked = false;
   candidate.registrationLockExpiry = null;
 
+  // Add a remark about the marking
+  if (!candidate.remarks) {
+    candidate.remarks = [];
+  }
+  candidate.remarks.push({
+    remark: "Candidate marked",
+    date: dateUtils.getCurrentDate(),
+    employee: req.employee._id,
+  });
+
+  // Save all changes
   await candidate.save();
 
   // Send notification to the previous owner
-  if (previousOwnerId) {
+  if (
+    previousOwnerId &&
+    previousOwnerId.toString() !== req.employee._id.toString()
+  ) {
     try {
       const markingEmployee = await Employee.findById(req.employee._id);
-
       await createCandidateMarkNotification(
         candidate,
         markingEmployee,
@@ -295,10 +316,15 @@ exports.markCandidate = handleAsync(async (req, res, next) => {
     }
   }
 
+  // Fetch the updated candidate with populated fields
+  const updatedCandidate = await Candidate.findById(candidate._id)
+    .populate("lastRegisteredBy", "name")
+    .populate("registrationHistory.registeredBy", "name");
+
   res.status(200).json({
     status: "success",
     message: "Candidate marked successfully",
-    candidate,
+    candidate: updatedCandidate,
   });
 });
 
@@ -439,40 +465,40 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
 
   // Create candidate record
   const candidate = await Candidate.create({
-    name,
-    mobileNo,
-    whatsappNo,
-    source,
-    gender,
-    experience,
-    qualification,
-    state,
-    city,
-    salaryExpectation,
-    communication,
-    noticePeriod,
-    shift,
-    relocation,
-    companyProfile,
+    name: name || "-",
+    mobileNo: mobileNo || "-",
+    whatsappNo: whatsappNo || "-",
+    source: source || "-",
+    gender: gender || "-",
+    experience: experience || "-",
+    qualification: qualification || "-",
+    state: state || "-",
+    city: city || "-",
+    salaryExpectation: salaryExpectation || "-",
+    communication: communication || "-",
+    noticePeriod: noticePeriod || "-",
+    shift: shift || "-",
+    relocation: relocation || "-",
+    companyProfile: companyProfile || "-",
     callStatus: callStatus || "New",
     createdBy: req.employee._id,
     lastRegisteredBy: req.employee._id,
-    callStatusHistory,
-    callDurationHistory,
+    callStatusHistory: callStatusHistory,
+    callDurationHistory: callDurationHistory,
     remarks: remarksHistory,
-    locality,
-    lineupCompany,
-    customLineupCompany,
-    lineupProcess,
-    customLineupProcess,
-    lineupDate,
-    interviewDate,
-    walkinDate,
-    registrationHistory,
-    registrationLockExpiry,
-    isLocked,
-    lineupRemarksHistory,
-    walkinRemarksHistory,
+    locality: locality || "-",
+    lineupCompany: lineupCompany || "-",
+    customLineupCompany: customLineupCompany || "-",
+    lineupProcess: lineupProcess || "-",
+    customLineupProcess: customLineupProcess || "-",
+    lineupDate: lineupDate || "-",
+    interviewDate: interviewDate || "-",
+    walkinDate: walkinDate || "-",
+    registrationHistory: registrationHistory,
+    registrationLockExpiry: registrationLockExpiry,
+    isLocked: isLocked,
+    lineupRemarksHistory: lineupRemarksHistory,
+    walkinRemarksHistory: walkinRemarksHistory,
   });
 
   // Check if callStatus is lineup and create a lineup record
@@ -518,21 +544,28 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
 
 // Get all candidates
 exports.getAllCandidates = handleAsync(async (req, res, next) => {
+  // Find all candidates where the employee is involved
   const candidates = await Candidate.find({
     $or: [
       { lastRegisteredBy: req.employee._id },
       { createdBy: req.employee._id },
       {
         registrationHistory: {
-          $elemMatch: { registeredBy: req.employee._id },
+          $elemMatch: {
+            registeredBy: req.employee._id,
+            status: "Active",
+          },
         },
       },
     ],
   })
     .populate("lastRegisteredBy", "name")
-    .sort({ createdAt: -1 });
+    .populate("createdBy", "name")
+    .populate("registrationHistory.registeredBy", "name")
+    .sort({ updatedAt: -1 });
 
-  const employee = await Employee.find();
+  // Get all employees for reference
+  const employees = await Employee.find({}, "name");
 
   // Add registration status info for each candidate
   const candidatesWithStatus = await Promise.all(
@@ -550,13 +583,16 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
         candidate.lastRegisteredBy._id.toString() ===
           req.employee._id.toString();
 
-      const lastRegisteredByName = employee.find(
+      const lastRegisteredByEmployee = employees.find(
         (emp) =>
           emp._id.toString() === candidate.lastRegisteredBy._id.toString()
-      ).name.en;
+      );
+
+      const lastRegisteredByName = lastRegisteredByEmployee
+        ? lastRegisteredByEmployee.name.en
+        : "Unknown";
 
       let remainingDays = 0;
-
       let remainingTime = null;
 
       if (
@@ -574,36 +610,34 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
         }
       }
 
-      // Filter call duration history to only include the current employee's entries
-      let employeeCallHistory = [];
-      if (
-        candidate.callDurationHistory &&
-        candidate.callDurationHistory.length > 0
-      ) {
-        employeeCallHistory = candidate.callDurationHistory.filter(
-          (record) =>
-            record.employee &&
-            record.employee.toString() === req.employee._id.toString()
-        );
-      }
+      // Get active registration entry for this employee
+      const myActiveRegistration = candidate.registrationHistory.find(
+        (entry) =>
+          entry.registeredBy._id.toString() === req.employee._id.toString() &&
+          entry.status === "Active"
+      );
 
-      let employeeRemarksHistory = [];
-      if (candidate.remarks && candidate.remarks.length > 0) {
-        employeeRemarksHistory = candidate.remarks.filter(
-          (remark) =>
-            remark.employee &&
-            remark.employee.toString() === req.employee._id.toString()
-        );
-      }
+      // Filter histories to only include the current employee's entries
+      const employeeCallHistory = (candidate.callDurationHistory || []).filter(
+        (record) =>
+          record.employee &&
+          record.employee.toString() === req.employee._id.toString()
+      );
+
+      const employeeRemarksHistory = (candidate.remarks || []).filter(
+        (remark) =>
+          remark.employee &&
+          remark.employee.toString() === req.employee._id.toString()
+      );
 
       // Check if candidate has an active joining
-      const joiningActive = hasActiveJoining(candidate.mobileNo);
+      const joiningActive = await hasActiveJoining(candidate.mobileNo);
 
       // A candidate is not editable if it has an active joining
       const editable = !joiningActive;
 
       return {
-        ...candidate._doc,
+        ...candidate.toObject(),
         isLockedByMe,
         isLastRegisteredByMe,
         lastRegisteredByName,
@@ -613,6 +647,10 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
         employeeRemarksHistory,
         editable,
         hasActiveJoining: joiningActive,
+        isActivelyRegisteredByMe: !!myActiveRegistration,
+        registrationDate: myActiveRegistration
+          ? myActiveRegistration.registrationDate
+          : null,
       };
     })
   );
@@ -695,7 +733,9 @@ exports.getCandidateCallHistory = handleAsync(async (req, res, next) => {
 // Update candidate
 exports.updateCandidate = handleAsync(async (req, res, next) => {
   // First fetch the existing candidate to compare call duration
-  const existingCandidate = await Candidate.findById(req.params.candidateId);
+  const existingCandidate = await Candidate.findById(req.params.candidateId)
+    .populate("lastRegisteredBy", "name")
+    .populate("registrationHistory.registeredBy", "name");
 
   if (!existingCandidate) {
     return res.status(404).json({
@@ -729,18 +769,90 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     existingCandidate.registrationLockExpiry &&
     existingCandidate.registrationLockExpiry > dateUtils.getCurrentDate();
 
-  const isUnderMe =
+  // Check if current employee is the last registered by
+  const isLastRegisteredBy =
     existingCandidate.lastRegisteredBy &&
-    existingCandidate.lastRegisteredBy.toString() ===
+    existingCandidate.lastRegisteredBy._id.toString() ===
       req.employee._id.toString();
 
-  // Don't allow edits if locked by someone else
-  if (isLocked && !isUnderMe) {
+  // Store the previous owner's ID before we change it
+  const previousOwnerId = existingCandidate.lastRegisteredBy
+    ? existingCandidate.lastRegisteredBy._id
+    : null;
+
+  // Check if current employee already exists in registration history with Active status
+  let alreadyInHistory = false;
+  if (
+    existingCandidate.registrationHistory &&
+    existingCandidate.registrationHistory.length > 0
+  ) {
+    alreadyInHistory = existingCandidate.registrationHistory.some(
+      (entry) =>
+        entry.registeredBy &&
+        entry.registeredBy._id &&
+        entry.registeredBy._id.toString() === req.employee._id.toString() &&
+        entry.status === "Active"
+    );
+  }
+
+  // Don't allow edits if locked by someone else and not marked by current employee
+  if (isLocked && !isLastRegisteredBy && !alreadyInHistory) {
     return res.status(403).json({
       status: "fail",
-      message: "Candidate is locked by another employee",
+      message: "Candidate is locked by another employee and not marked by you",
       lockExpiryDate: existingCandidate.registrationLockExpiry,
     });
+  }
+
+  // If not already marked by current employee, mark the candidate
+  if (!isLastRegisteredBy && !alreadyInHistory) {
+    // Mark all existing active registrations as expired
+    if (existingCandidate.registrationHistory) {
+      existingCandidate.registrationHistory.forEach((entry) => {
+        if (entry.status === "Active") {
+          entry.status = "Expired";
+        }
+      });
+    }
+
+    // Add new registration history entry
+    existingCandidate.registrationHistory.push({
+      registeredBy: req.employee._id,
+      registrationDate: dateUtils.getCurrentDate(),
+      status: "Active",
+    });
+
+    // Update the lastRegisteredBy to the current employee
+    existingCandidate.lastRegisteredBy = req.employee._id;
+
+    // Add a remark about the marking
+    if (!existingCandidate.remarks) {
+      existingCandidate.remarks = [];
+    }
+    existingCandidate.remarks.push({
+      remark: "Candidate marked during update",
+      date: dateUtils.getCurrentDate(),
+      employee: req.employee._id,
+    });
+
+    // Send notification to the previous owner if exists and is different from current employee
+    if (
+      previousOwnerId &&
+      previousOwnerId.toString() !== req.employee._id.toString()
+    ) {
+      try {
+        const markingEmployee = await Employee.findById(req.employee._id);
+        await createCandidateMarkNotification(
+          existingCandidate,
+          markingEmployee,
+          previousOwnerId,
+          req.io
+        );
+      } catch (error) {
+        console.error("Error sending notification:", error);
+        // Continue with the update even if notification fails
+      }
+    }
   }
 
   // Original update logic continues below
@@ -859,10 +971,10 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     (!wasAlreadyLockableStatus ||
       existingCandidate.registrationLockExpiry < dateUtils.getCurrentDate())
   ) {
-    // Set registration lock for 30 days
+    // Set registration lock for lineup days
     const registrationLockExpiry = dateUtils.addTime(
       dateUtils.getCurrentDate(),
-      30,
+      LINEUP_LOCK_DAYS,
       "days"
     );
 
@@ -870,29 +982,17 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     req.body.isLocked = true;
   }
 
-  // Merge the candidate data with the request body
-  const updatedData = { ...req.body };
-
-  // Update with the new history arrays
-  if (existingCandidate.callDurationHistory) {
-    updatedData.callDurationHistory = existingCandidate.callDurationHistory;
-  }
-
-  if (existingCandidate.callStatusHistory) {
-    updatedData.callStatusHistory = existingCandidate.callStatusHistory;
-  }
-
-  if (existingCandidate.registrationHistory) {
-    updatedData.registrationHistory = existingCandidate.registrationHistory;
-  }
-
-  if (existingCandidate.lineupRemarksHistory) {
-    updatedData.lineupRemarksHistory = existingCandidate.lineupRemarksHistory;
-  }
-
-  if (existingCandidate.walkinRemarksHistory) {
-    updatedData.walkinRemarksHistory = existingCandidate.walkinRemarksHistory;
-  }
+  // Merge the candidate data with the request body and registration history
+  const updatedData = {
+    ...req.body,
+    registrationHistory: existingCandidate.registrationHistory,
+    lastRegisteredBy: existingCandidate.lastRegisteredBy,
+    callDurationHistory: existingCandidate.callDurationHistory,
+    callStatusHistory: existingCandidate.callStatusHistory,
+    lineupRemarksHistory: existingCandidate.lineupRemarksHistory,
+    walkinRemarksHistory: existingCandidate.walkinRemarksHistory,
+    remarks: existingCandidate.remarks,
+  };
 
   // Update the candidate
   const candidate = await Candidate.findByIdAndUpdate(
@@ -977,7 +1077,7 @@ exports.deleteCandidate = handleAsync(async (req, res, next) => {
   }
 
   // Check if candidate has an active joining
-  const joiningActive = await hasActiveJoining(candidate.mobileNo);
+  const joiningActive = hasActiveJoining(candidate.mobileNo);
 
   if (joiningActive) {
     return res.status(403).json({
@@ -1131,7 +1231,7 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
           name: candidate.name,
           mobileNo: candidate.mobileNo,
           whatsappNo: candidate.whatsappNo || candidate.mobileNo,
-          source: candidate.source || "Excel Import",
+          source: candidate.source || "-",
           gender: candidate.gender || "-",
           experience: candidate.experience || "-",
           qualification: candidate.qualification || "-",

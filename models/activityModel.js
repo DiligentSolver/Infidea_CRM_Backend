@@ -40,5 +40,14 @@ const ActivitySchema = new mongoose.Schema(
 // Create compound index to efficiently query for active activities per employee
 ActivitySchema.index({ employeeId: 1, isActive: 1 });
 
+// Add a unique index to ensure only one active activity per employee
+ActivitySchema.index(
+  { employeeId: 1, isActive: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { isActive: true },
+  }
+);
+
 const Activity = mongoose.model("Activity", ActivitySchema);
 module.exports = Activity;
