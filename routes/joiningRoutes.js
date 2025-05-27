@@ -9,6 +9,7 @@ const {
   calculateEmployeeIncentives,
   recalculateAllIncentives,
   getIncentiveRatesInfo,
+  getFinancialYearSummary,
 } = require("../controllers/joiningController");
 const {
   authMiddleware,
@@ -47,7 +48,7 @@ router.post(
 router.get("/incentives/rates", employeeMiddleware, getIncentiveRatesInfo);
 
 // Get joining by ID
-router.get("/:joiningId", employeeMiddleware, getJoiningById);
+// router.get("/:joiningId", employeeMiddleware, getJoiningById);
 
 // Update joining
 router.put("/:joiningId", employeeMiddleware, updateJoining);
@@ -57,5 +58,12 @@ router.delete("/:joiningId", employeeMiddleware, deleteJoining);
 
 // Delete multiple joinings
 router.delete("/", employeeMiddleware, deleteMultipleJoinings);
+
+// Month-wise financial year summary for an employee
+router.get(
+  "/financial-year-summary",
+  employeeMiddleware,
+  getFinancialYearSummary
+);
 
 module.exports = router;

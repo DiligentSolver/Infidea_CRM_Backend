@@ -850,6 +850,89 @@ const getIncentiveRatesInfo = handleAsync(async (req, res) => {
   });
 });
 
+// Month-wise summary for a financial year (per employee)
+const getFinancialYearSummary = handleAsync(async (req, res) => {
+  const employeeId = req.employee._id;
+  let { startDate, endDate } = req.query;
+
+  // Default to Indian FY if not provided
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  if (!startDate || !endDate) {
+    // If before April, FY is previous year to current year
+    if (currentMonth < 3) {
+      startDate = `${currentYear - 1}-04-01`;
+      endDate = `${currentYear}-03-31`;
+    } else {
+      startDate = `${currentYear}-04-01`;
+      endDate = `${currentYear + 1}-03-31`;
+    }
+  }
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999); // include full end day
+
+  // Generate month ranges between start and end
+  const months = [];
+  let temp = new Date(start);
+  while (temp <= end) {
+    const monthStart = new Date(temp.getFullYear(), temp.getMonth(), 1);
+    const monthEnd = new Date(
+      temp.getFullYear(),
+      temp.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999
+    );
+    if (monthEnd > end) monthEnd.setTime(end.getTime());
+    months.push({
+      month: monthStart.toLocaleString("default", { month: "long" }),
+      year: monthStart.getFullYear(),
+      start: new Date(monthStart),
+      end: new Date(monthEnd),
+    });
+    temp.setMonth(temp.getMonth() + 1);
+  }
+
+  // Fetch all joinings for the employee in the FY
+  const joinings = await Joining.find({
+    createdBy: employeeId,
+    createdAt: { $gte: start, $lte: end },
+  }).lean();
+
+  // Prepare month-wise summary
+  const summary = months.map(({ month, year, start, end }) => {
+    const monthJoinings = joinings.filter((j) => {
+      const created = new Date(j.createdAt);
+      return created >= start && created <= end;
+    });
+    return {
+      month,
+      year,
+      totalJoinings: monthJoinings.length,
+      totalIncentive: monthJoinings.reduce(
+        (sum, j) => sum + (j.incentives?.amount || 0),
+        0
+      ),
+    };
+  });
+
+  // Totals
+  const totalJoinings = summary.reduce((sum, m) => sum + m.totalJoinings, 0);
+  const totalIncentive = summary.reduce((sum, m) => sum + m.totalIncentive, 0);
+
+  return res.status(200).json({
+    success: true,
+    message: "Financial year summary fetched successfully",
+    data: summary,
+    totals: { totalJoinings, totalIncentive },
+    period: { startDate, endDate },
+  });
+});
+
 module.exports = {
   createJoining,
   getAllJoinings,
@@ -860,4 +943,5 @@ module.exports = {
   calculateEmployeeIncentives,
   recalculateAllIncentives,
   getIncentiveRatesInfo,
+  getFinancialYearSummary,
 };

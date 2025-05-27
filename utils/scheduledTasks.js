@@ -241,9 +241,36 @@ const scheduleAutoLogout = () => {
   );
 };
 
+/**
+ * Scheduler to check and expire tokens at 9 PM IST daily
+ */
+const scheduleTokenExpiryCheck = () => {
+  // Run at 9 PM (21:00) every day in IST
+  cron.schedule(
+    "0 21 * * *",
+    async () => {
+      try {
+        // Here you would implement logic to blacklist tokens or update DB/session store
+        // For stateless JWT, this is a placeholder
+        console.log(
+          "[Token Expiry Scheduler] 9 PM IST: All tokens should now be considered expired."
+        );
+      } catch (error) {
+        console.error("Error in token expiry scheduler:", error);
+      }
+    },
+    {
+      timezone: IST_TIMEZONE,
+    }
+  );
+
+  console.log("Scheduled task registered: Token expiry check at 9 PM IST");
+};
+
 module.exports = {
   scheduleActivityClosing,
   scheduleNotificationCleanup,
   scheduleDailyActivityReset,
   scheduleAutoLogout,
+  scheduleTokenExpiryCheck,
 };

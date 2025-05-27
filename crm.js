@@ -17,8 +17,6 @@ const errorHandler = require("./middleware/errorHandler");
 const { client } = require("./utils/redisClient");
 const notificationRoutes = require("./routes/notificationRoutes");
 const limiter = require("./middleware/ratelimiterRedis");
-const settingRoutes = require("./routes/settingRoutes");
-const languageRoutes = require("./routes/languageRoutes");
 const emailRoutes = require("./routes/emailRoutes"); // Import email routes
 const thoughtRoutes = require("./routes/thoughtRoutes"); // Import thought routes
 const frontendApis = require("./frontendApis"); // Import frontend APIs
@@ -29,6 +27,7 @@ const {
   scheduleNotificationCleanup,
   scheduleDailyActivityReset,
   scheduleAutoLogout,
+  scheduleTokenExpiryCheck,
 } = require("./utils/scheduledTasks");
 const { initScheduler } = require("./utils/scheduler");
 const { scheduleDailyReport } = require("./utils/dailyReportGenerator");
@@ -48,6 +47,7 @@ scheduleActivityClosing();
 scheduleNotificationCleanup();
 scheduleDailyActivityReset(); // Add daily reset scheduler
 scheduleAutoLogout(); // Initialize auto logout scheduler
+scheduleTokenExpiryCheck(); // Initialize token expiry scheduler at 9 PM IST
 initScheduler(); // Initialize candidate lock scheduler
 scheduleDailyReport(); // Initialize daily report scheduler at 8 PM
 
@@ -90,8 +90,6 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use("/crm/api/auth/employee", employeeAuthRoutes);
 app.use("/crm/api/employee", employeeDashboardRoutes);
 app.use("/crm/api", frontendApis); //Frontend apis
-app.use("/crm/api/setting", settingRoutes);
-app.use("/crm/api/language", languageRoutes);
 app.use("/crm/api/lineups", lineupRoutes);
 app.use("/crm/api/joinings", joiningRoutes);
 app.use("/crm/api/walkins", walkinRoutes);

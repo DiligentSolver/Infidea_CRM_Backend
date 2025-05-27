@@ -152,7 +152,7 @@ exports.registerEmployee = handleAsync(async (req, res) => {
 
   await newEmployee.save();
 
-  signInToken(newEmployee, "7d");
+  signInToken(newEmployee);
 
   console.info(`User Registered: ${mobile}`);
 
@@ -296,7 +296,7 @@ exports.verifyLoginAdminOtp = handleAsync(async (req, res) => {
   }
 
   // Generate JWT token
-  const token = signInToken(user, "7d");
+  const token = signInToken(user);
 
   // Close all active activities first
   await closeAllActiveActivities(user._id);

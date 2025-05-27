@@ -1,6 +1,8 @@
 require("dotenv").config();
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
+const moment = require("moment-timezone");
+const { IST_TIMEZONE } = require("../utils/dateUtils");
 
 const secretKey = process.env.ENCRYPT_PASSWORD;
 
@@ -25,15 +27,23 @@ const handleEncryptData = (data) => {
   };
 };
 
-const signInToken = (user, expiresIn) => {
+const signInToken = (user) => {
+  // Calculate next 9pm IST
+  const now = moment().tz(IST_TIMEZONE);
+  let next9pm = now
+    .clone()
+    .set({ hour: 21, minute: 0, second: 0, millisecond: 0 });
+  if (now.isAfter(next9pm)) {
+    next9pm.add(1, "day");
+  }
+  const exp = next9pm.unix(); // JWT expects seconds since epoch
+
   return jwt.sign(
     {
       _id: user._id,
+      exp,
     },
-    process.env.JWT_SECRET,
-    {
-      expiresIn: expiresIn || "7d",
-    }
+    process.env.JWT_SECRET
   );
 };
 
