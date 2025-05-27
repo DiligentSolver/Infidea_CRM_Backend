@@ -55,18 +55,10 @@ const updateEmployeeProfile = handleAsync(async (req, res) => {
     }
   }
 
-  // Only update fields that are empty or not set, except for address which is always allowed
+  // Update all fields coming from request
   const fieldsToUpdate = {};
   for (const key in profileData) {
-    if (key === "address") {
-      fieldsToUpdate[key] = profileData[key];
-    } else if (
-      employee[key] === undefined ||
-      employee[key] === null ||
-      employee[key] === ""
-    ) {
-      fieldsToUpdate[key] = profileData[key];
-    }
+    fieldsToUpdate[key] = profileData[key];
   }
 
   if (Object.keys(fieldsToUpdate).length === 0) {

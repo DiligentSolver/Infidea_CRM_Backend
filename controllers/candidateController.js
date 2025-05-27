@@ -553,7 +553,6 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
         registrationHistory: {
           $elemMatch: {
             registeredBy: req.employee._id,
-            status: "Active",
           },
         },
       },
