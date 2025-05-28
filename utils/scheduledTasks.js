@@ -75,15 +75,17 @@ const scheduleDailyActivityReset = () => {
 };
 
 /**
- * Scheduled task to close all active activities at 9 PM every day
+ * Scheduled task to close all active activities at 7:50 PM every day
  */
 const scheduleActivityClosing = () => {
-  // Run at 9 PM (21:00) every day in IST
+  // Run at 7:50 PM (19:50) every day in IST
   cron.schedule(
-    "0 21 * * *",
+    "50 19 * * *",
     async () => {
       try {
-        console.log("Running scheduled task: Auto-closing activities at 9 PM");
+        console.log(
+          "Running scheduled task: Auto-closing activities at 7:50 PM"
+        );
 
         // Get all employees with active activities
         const employeesWithActiveActivities = await Activity.distinct(
@@ -98,6 +100,7 @@ const scheduleActivityClosing = () => {
         for (const employeeId of employeesWithActiveActivities) {
           try {
             const closedActivities = await closeAllActiveActivities(employeeId);
+            closedCount += closedActivities.length;
 
             // Create a "System Logout" activity
             const logoutActivity = new Activity({
@@ -108,14 +111,11 @@ const scheduleActivityClosing = () => {
               isActive: false,
             });
             await logoutActivity.save();
-
-            closedCount += closedActivities.length;
           } catch (error) {
             console.error(
               `Error closing activities for employee ${employeeId}:`,
               error
             );
-            // Continue with next employee
             continue;
           }
         }
@@ -132,9 +132,9 @@ const scheduleActivityClosing = () => {
     }
   );
 
-  // Also schedule a safety check at 9:05 PM to catch any activities that weren't closed
+  // Safety check 2 minutes later at 7:52 PM
   cron.schedule(
-    "5 21 * * *",
+    "52 19 * * *",
     async () => {
       try {
         console.log("Running safety check for unclosed activities");
@@ -165,7 +165,9 @@ const scheduleActivityClosing = () => {
     }
   );
 
-  console.log("Scheduled task registered: Auto-closing activities at 9 PM IST");
+  console.log(
+    "Scheduled task registered: Auto-closing activities at 7:50 PM IST"
+  );
 };
 
 // Function to clean up old notifications (older than 30 days)
@@ -239,6 +241,8 @@ const scheduleAutoLogout = () => {
       timezone: IST_TIMEZONE,
     }
   );
+
+  console.log("Scheduled task registered: Auto logout at 7:58 PM IST");
 };
 
 /**

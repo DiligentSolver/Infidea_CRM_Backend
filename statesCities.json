@@ -1,7 +1,6 @@
 {
     
    "states" : [
-    { "code": "MP", "name": "Madhya Pradesh" },
     { "code": "AP", "name": "Andhra Pradesh" },
     { "code": "AR", "name": "Arunachal Pradesh" },
     { "code": "AS", "name": "Assam" },
@@ -14,6 +13,7 @@
     { "code": "JH", "name": "Jharkhand" },
     { "code": "KA", "name": "Karnataka" },
     { "code": "KL", "name": "Kerala" },
+    { "code": "MP", "name": "Madhya Pradesh" },
     { "code": "MH", "name": "Maharashtra" },
     { "code": "MN", "name": "Manipur" },
     { "code": "ML", "name": "Meghalaya" },
@@ -424,7 +424,6 @@
       "Vadakara"],
 
     "MP": [
-      "Indore",
       "Betul",
       "Bhind",
       "Bhopal",
@@ -436,6 +435,7 @@
       "Guna",
       "Gwalior",
       "Hoshangabad",
+      "Indore",
       "Itarsi",
       "Jabalpur",
       "Khandwa",

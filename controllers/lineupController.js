@@ -32,7 +32,7 @@ const createLineup = handleAsync(async (req, res) => {
     status,
     customCompany,
     customProcess,
-    remarks,
+    lineupRemarks,
     // Joining fields (required when status is "Joined")
     joiningDate,
     joiningType,
@@ -48,7 +48,7 @@ const createLineup = handleAsync(async (req, res) => {
     !lineupDate ||
     !interviewDate ||
     !status ||
-    !remarks
+    !lineupRemarks
   ) {
     return res.status(400).json({
       success: false,
@@ -148,7 +148,7 @@ const createLineup = handleAsync(async (req, res) => {
     customCompany,
     customProcess,
     createdBy: req.employee._id,
-    remarks,
+    remarks: lineupRemarks,
   });
 
   // Update candidate's lineup fields
@@ -157,7 +157,7 @@ const createLineup = handleAsync(async (req, res) => {
     candidate.lastRegisteredBy.toString() === req.employee._id.toString()
   ) {
     const remarkHistory = {
-      remark: remarks,
+      remark: lineupRemarks,
       date: Date.now(),
       employee: req.employee._id,
     };
@@ -196,7 +196,7 @@ const createLineup = handleAsync(async (req, res) => {
       salary,
       joiningDate,
       status: "Pending",
-      remarks: joiningRemarks || remarks,
+      remarks: joiningRemarks || lineupRemarks,
       createdBy: req.employee._id,
     });
 
@@ -241,7 +241,7 @@ const getAllLineups = handleAsync(async (req, res) => {
     });
   }
 
-  // Add editable property to each lineup
+  // Add editable property and candidate lineup count to each lineup
   const lineupResultsPromises = lineups.map(async (lineup) => {
     // Check if this lineup is part of an active joining
     const inActiveJoining = await isLineupInActiveJoining(
@@ -256,14 +256,21 @@ const getAllLineups = handleAsync(async (req, res) => {
       process: lineup.process,
     });
 
-    // A lineup is not editable if it's part of an active joining
-    const editable = !inActiveJoining;
+    // Get count of all lineups for this candidate by the current employee
+    const candidateLineupCount = await Lineup.countDocuments({
+      contactNumber: lineup.contactNumber,
+      createdBy: req.employee._id,
+    });
+
+    // A lineup is not editable if it's part of an active joining or has Offer Drop status
+    const editable = !inActiveJoining && lineup.status !== "Offer Drop";
 
     return {
       ...lineup.toObject(),
       editable,
       hasActiveJoining: inActiveJoining,
       joining,
+      candidateLineupCount,
     };
   });
 
@@ -306,8 +313,8 @@ const getLineupById = handleAsync(async (req, res) => {
     lineup.process
   );
 
-  // A lineup is not editable if it's part of an active joining
-  const editable = !inActiveJoining;
+  // A lineup is not editable if it's part of an active joining or has Offer Drop status
+  const editable = !inActiveJoining && lineup.status !== "Offer Drop";
 
   const lineupResult = {
     ...lineup.toObject(),
@@ -352,7 +359,15 @@ const updateLineup = handleAsync(async (req, res) => {
     existingLineup.process
   );
 
-  // A lineup is not editable if it's part of an active joining
+  // Prevent editing if status is "Offer Drop"
+  if (existingLineup.status === "Offer Drop") {
+    return res.status(403).json({
+      success: false,
+      message: "This lineup cannot be edited as it has Offer Drop status",
+    });
+  }
+
+  // Check for active joining separately
   if (inActiveJoining) {
     return res.status(403).json({
       success: false,

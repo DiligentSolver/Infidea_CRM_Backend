@@ -188,6 +188,9 @@ const getDashboardOverview = handleAsync(async (req, res) => {
     let timeSpent = await calculateTotalTime(employeeId);
     if (!timeSpent || typeof timeSpent !== "string") timeSpent = "0h";
 
+    const totalConversionRate =
+      totalCalls > 0 ? ((totalJoinings / totalCalls) * 100).toFixed(1) : 0;
+
     return res.status(200).json({
       success: true,
       data: {
@@ -196,6 +199,7 @@ const getDashboardOverview = handleAsync(async (req, res) => {
         totalJoinings,
         totalSelections,
         timeSpent,
+        totalConversionRate,
       },
     });
   } catch (error) {
@@ -215,7 +219,7 @@ const getTodayOverview = handleAsync(async (req, res) => {
   const employeeId = req.employee._id;
 
   try {
-    // Calculate today's date range
+    // Calculate today's date range using IST
     const today = dateUtils.startOfDay();
     const tomorrow = dateUtils.addTime(today, 1, "days");
 
@@ -295,9 +299,45 @@ const getCompleteAnalytics = handleAsync(async (req, res) => {
   const employeeId = req.employee._id;
 
   try {
-    // Calculate today's date range
+    // Calculate today's date range using IST
     const today = dateUtils.startOfDay();
     const tomorrow = dateUtils.addTime(today, 1, "days");
+
+    // Start of week (Sunday) in IST
+    const startOfWeek = dateUtils.startOfDay(new Date(today));
+    startOfWeek.setDate(today.getDate() - today.getDay());
+
+    // Start of month in IST
+    const startOfMonth = dateUtils.startOfDay(
+      new Date(today.getFullYear(), today.getMonth(), 1)
+    );
+
+    // Start of year in IST
+    const startOfYear = dateUtils.startOfDay(
+      new Date(today.getFullYear(), 0, 1)
+    );
+
+    // Previous periods for trend calculations in IST
+    const yesterday = dateUtils.startOfDay(
+      dateUtils.addTime(today, -1, "days")
+    );
+    const dayBeforeYesterday = dateUtils.startOfDay(
+      dateUtils.addTime(yesterday, -1, "days")
+    );
+
+    const previousWeekStart = dateUtils.startOfDay(
+      dateUtils.addTime(startOfWeek, -7, "days")
+    );
+    const previousWeekEnd = dateUtils.endOfDay(
+      dateUtils.addTime(startOfWeek, -1, "days")
+    );
+
+    const previousMonthStart = dateUtils.startOfDay(
+      new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    );
+    const previousMonthEnd = dateUtils.endOfDay(
+      new Date(today.getFullYear(), today.getMonth(), 0)
+    );
 
     // Overall statistics
     const totalCalls = await Candidate.countDocuments({
@@ -353,6 +393,9 @@ const getCompleteAnalytics = handleAsync(async (req, res) => {
       status: "Offer Drop",
     });
 
+    const totalConversionRate =
+      totalCalls > 0 ? ((totalJoinings / totalCalls) * 100).toFixed(2) : 0;
+
     // Calculate total time spent using call durations
     let timeSpent = await calculateTotalTime(employeeId);
     if (!timeSpent || typeof timeSpent !== "string") timeSpent = "0m 0h";
@@ -405,6 +448,9 @@ const getCompleteAnalytics = handleAsync(async (req, res) => {
     if (!todayTimeSpent || typeof todayTimeSpent !== "string")
       todayTimeSpent = "0h 0m";
 
+    const todayAverageTime =
+      todayCalls > 0 ? (todayTimeSpent / todayCalls).toFixed(2) + "m" : "0m";
+
     return res.status(200).json({
       success: true,
       dashboardOverview: {
@@ -417,8 +463,10 @@ const getCompleteAnalytics = handleAsync(async (req, res) => {
         totalLeaves: totalLeaves || 0,
         totalIncentives: totalIncentives || 0,
         offerDrops: offerDrops || 0,
+        totalConversionRate,
       },
       todayOverview: {
+        todayAverageTime: todayAverageTime || 0,
         calls: todayCalls || 0,
         lineups: todayLineups || 0,
         joinings: todayJoinings || 0,
@@ -445,19 +493,31 @@ const getDashboardVisualData = handleAsync(async (req, res) => {
   const employeeId = req.employee._id;
 
   try {
-    // Calculate time ranges
+    // Calculate time ranges using IST
     const today = dateUtils.startOfDay();
     const tomorrow = dateUtils.addTime(today, 1, "days");
 
-    // Start of week (Sunday)
-    const startOfWeek = new Date(today);
+    // Start of week (Sunday) in IST
+    const startOfWeek = dateUtils.startOfDay(new Date(today));
     startOfWeek.setDate(today.getDate() - today.getDay());
 
-    // Start of month
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    // Start of month in IST
+    const startOfMonth = dateUtils.startOfDay(
+      new Date(today.getFullYear(), today.getMonth(), 1)
+    );
 
-    // Start of year
-    const startOfYear = new Date(today.getFullYear(), 0, 1);
+    // Calculate quarter in IST
+    const currentQuarter = Math.floor(
+      dateUtils.getCurrentDate().getMonth() / 3
+    );
+    const startOfQuarter = dateUtils.startOfDay(
+      new Date(today.getFullYear(), currentQuarter * 3, 1)
+    );
+
+    // Start of year in IST
+    const startOfYear = dateUtils.startOfDay(
+      new Date(today.getFullYear(), 0, 1)
+    );
 
     // Previous periods for trend calculations
     const yesterday = new Date(today);
@@ -1442,22 +1502,16 @@ const getIncentivesData = handleAsync(async (req, res) => {
     // Create daily distribution for last 30 days
     const dailyIncentives = [];
     for (let i = 29; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-
-      const dayStart = new Date(date);
-      dayStart.setHours(0, 0, 0, 0);
-
-      const dayEnd = new Date(date);
-      dayEnd.setHours(23, 59, 59, 999);
-
-      const dateString = date.toISOString().split("T")[0];
+      const date = dateUtils.addTime(today, -i, "days");
+      const dayStart = dateUtils.startOfDay(date);
+      const dayEnd = dateUtils.endOfDay(date);
+      const dateString = dateUtils.formatDate(date);
 
       const incentivesForDay = allIncentives
         .filter(
           (item) =>
-            new Date(item.createdAt) >= dayStart &&
-            new Date(item.createdAt) <= dayEnd
+            dateUtils.compareDates(new Date(item.createdAt), dayStart) >= 0 &&
+            dateUtils.compareDates(new Date(item.createdAt), dayEnd) <= 0
         )
         .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
 
@@ -1466,8 +1520,8 @@ const getIncentivesData = handleAsync(async (req, res) => {
         amount: incentivesForDay,
         count: allIncentives.filter(
           (item) =>
-            new Date(item.createdAt) >= dayStart &&
-            new Date(item.createdAt) <= dayEnd
+            dateUtils.compareDates(new Date(item.createdAt), dayStart) >= 0 &&
+            dateUtils.compareDates(new Date(item.createdAt), dayEnd) <= 0
         ).length,
       });
     }
@@ -1475,18 +1529,16 @@ const getIncentivesData = handleAsync(async (req, res) => {
     // Create weekly distribution (last 12 weeks)
     const weeklyIncentives = [];
     for (let i = 11; i >= 0; i--) {
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - today.getDay() - 7 * i);
+      const weekStart = dateUtils.startOfDay(
+        dateUtils.addTime(today, -(7 * i + today.getDay()), "days")
+      );
+      const weekEnd = dateUtils.endOfDay(
+        dateUtils.addTime(weekStart, 6, "days")
+      );
 
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      weekEnd.setHours(23, 59, 59, 999);
-
-      // Format week label as "MMM DD - MMM DD YYYY"
-      const startMonth = weekStart.toLocaleString("default", {
-        month: "short",
-      });
-      const endMonth = weekEnd.toLocaleString("default", { month: "short" });
+      // Format week label using IST dates
+      const startMonth = dateUtils.formatDate(weekStart, "MMM");
+      const endMonth = dateUtils.formatDate(weekEnd, "MMM");
       const startDay = weekStart.getDate();
       const endDay = weekEnd.getDate();
       const year = weekEnd.getFullYear();
@@ -1501,20 +1553,20 @@ const getIncentivesData = handleAsync(async (req, res) => {
       const incentivesForWeek = allIncentives
         .filter(
           (item) =>
-            new Date(item.createdAt) >= weekStart &&
-            new Date(item.createdAt) <= weekEnd
+            dateUtils.compareDates(new Date(item.createdAt), weekStart) >= 0 &&
+            dateUtils.compareDates(new Date(item.createdAt), weekEnd) <= 0
         )
         .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
 
       weeklyIncentives.push({
-        weekStart: weekStart.toISOString(),
-        weekEnd: weekEnd.toISOString(),
+        weekStart: dateUtils.formatToISOString(weekStart),
+        weekEnd: dateUtils.formatToISOString(weekEnd),
         weekLabel,
         amount: incentivesForWeek,
         count: allIncentives.filter(
           (item) =>
-            new Date(item.createdAt) >= weekStart &&
-            new Date(item.createdAt) <= weekEnd
+            dateUtils.compareDates(new Date(item.createdAt), weekStart) >= 0 &&
+            dateUtils.compareDates(new Date(item.createdAt), weekEnd) <= 0
         ).length,
       });
     }
@@ -1522,10 +1574,9 @@ const getIncentivesData = handleAsync(async (req, res) => {
     // Create quarterly distribution (last 8 quarters)
     const quarterlyIncentives = [];
     for (let i = 7; i >= 0; i--) {
-      const currentYear = today.getFullYear();
-      const currentQtr = Math.floor(today.getMonth() / 3);
+      const currentYear = dateUtils.getCurrentDate().getFullYear();
+      const currentQtr = Math.floor(dateUtils.getCurrentDate().getMonth() / 3);
 
-      // Calculate quarter number (0-3) and year
       let qtrNumber = currentQtr - (i % 4);
       let yearOffset = Math.floor(i / 4);
       let year = currentYear - yearOffset;
@@ -1535,29 +1586,27 @@ const getIncentivesData = handleAsync(async (req, res) => {
         year--;
       }
 
-      const qtrStart = new Date(year, qtrNumber * 3, 1);
-      const qtrEnd = new Date(year, qtrNumber * 3 + 3, 0);
-      qtrEnd.setHours(23, 59, 59, 999);
-
+      const qtrStart = dateUtils.startOfDay(new Date(year, qtrNumber * 3, 1));
+      const qtrEnd = dateUtils.endOfDay(new Date(year, qtrNumber * 3 + 3, 0));
       const qtrLabel = `Q${qtrNumber + 1} ${year}`;
 
       const incentivesForQuarter = allIncentives
         .filter(
           (item) =>
-            new Date(item.createdAt) >= qtrStart &&
-            new Date(item.createdAt) <= qtrEnd
+            dateUtils.compareDates(new Date(item.createdAt), qtrStart) >= 0 &&
+            dateUtils.compareDates(new Date(item.createdAt), qtrEnd) <= 0
         )
         .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
 
       quarterlyIncentives.push({
-        quarterStart: qtrStart.toISOString(),
-        quarterEnd: qtrEnd.toISOString(),
+        quarterStart: dateUtils.formatToISOString(qtrStart),
+        quarterEnd: dateUtils.formatToISOString(qtrEnd),
         quarterLabel: qtrLabel,
         amount: incentivesForQuarter,
         count: allIncentives.filter(
           (item) =>
-            new Date(item.createdAt) >= qtrStart &&
-            new Date(item.createdAt) <= qtrEnd
+            dateUtils.compareDates(new Date(item.createdAt), qtrStart) >= 0 &&
+            dateUtils.compareDates(new Date(item.createdAt), qtrEnd) <= 0
         ).length,
       });
     }
@@ -1565,25 +1614,21 @@ const getIncentivesData = handleAsync(async (req, res) => {
     // Create monthly distribution (last 12 months)
     const monthlyIncentives = [];
     for (let i = 11; i >= 0; i--) {
-      const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      const monthEnd = new Date(
-        date.getFullYear(),
-        date.getMonth() + 1,
-        0,
-        23,
-        59,
-        59,
-        999
+      const date = dateUtils.startOfDay(
+        new Date(today.getFullYear(), today.getMonth() - i, 1)
+      );
+      const monthEnd = dateUtils.endOfDay(
+        new Date(date.getFullYear(), date.getMonth() + 1, 0)
       );
 
-      const monthName = date.toLocaleString("default", { month: "short" });
+      const monthName = dateUtils.formatDate(date, "MMM");
       const year = date.getFullYear();
 
       const incentivesForMonth = allIncentives
         .filter(
           (item) =>
-            new Date(item.createdAt) >= date &&
-            new Date(item.createdAt) <= monthEnd
+            dateUtils.compareDates(new Date(item.createdAt), date) >= 0 &&
+            dateUtils.compareDates(new Date(item.createdAt), monthEnd) <= 0
         )
         .reduce((sum, item) => sum + (item.incentives?.amount || 0), 0);
 
@@ -1594,8 +1639,8 @@ const getIncentivesData = handleAsync(async (req, res) => {
         amount: incentivesForMonth,
         count: allIncentives.filter(
           (item) =>
-            new Date(item.createdAt) >= date &&
-            new Date(item.createdAt) <= monthEnd
+            dateUtils.compareDates(new Date(item.createdAt), date) >= 0 &&
+            dateUtils.compareDates(new Date(item.createdAt), monthEnd) <= 0
         ).length,
       });
     }
@@ -1738,9 +1783,8 @@ const getRecentFeeds = handleAsync(async (req, res) => {
         candidateName: lineup.name,
         company: lineup.company,
         process: lineup.process,
-        timestamp: new Date(lineup.createdAt).toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
+        timestamp: dateUtils.toLocaleTimeString(lineup.createdAt, {
+          format: "hh:mm A",
         }),
         status: lineup.status,
         id: lineup._id,
@@ -1752,9 +1796,8 @@ const getRecentFeeds = handleAsync(async (req, res) => {
         candidateName: selection.name,
         company: selection.company,
         process: selection.process,
-        timestamp: new Date(selection.createdAt).toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
+        timestamp: dateUtils.toLocaleTimeString(selection.createdAt, {
+          format: "hh:mm A",
         }),
         status: selection.status,
         id: selection._id,
@@ -1766,9 +1809,8 @@ const getRecentFeeds = handleAsync(async (req, res) => {
         candidateName: joining.candidateName,
         company: joining.company?.name || joining.company,
         process: joining.process,
-        timestamp: new Date(joining.createdAt).toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
+        timestamp: dateUtils.toLocaleTimeString(joining.createdAt, {
+          format: "hh:mm A",
         }),
         status: joining.status,
         id: joining._id,
@@ -1802,13 +1844,18 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
     const employeeId = req.employee._id;
     const { month, year } = req.query;
 
-    // Use current month and year if not specified
-    const targetMonth = month ? parseInt(month) - 1 : new Date().getMonth(); // Convert to 0-based index
-    const targetYear = year ? parseInt(year) : new Date().getFullYear();
+    // Use current month and year if not specified, using IST
+    const currentDate = dateUtils.getCurrentDate();
+    const targetMonth = month ? parseInt(month) - 1 : currentDate.getMonth();
+    const targetYear = year ? parseInt(year) : currentDate.getFullYear();
 
-    // Create date objects for start and end of month
-    const startDate = new Date(targetYear, targetMonth, 1);
-    const endDate = new Date(targetYear, targetMonth + 1, 0); // Last day of month
+    // Create date objects for start and end of month in IST
+    const startDate = dateUtils.startOfDay(
+      new Date(targetYear, targetMonth, 1)
+    );
+    const endDate = dateUtils.endOfDay(
+      new Date(targetYear, targetMonth + 1, 0)
+    );
 
     // Get all employee leaves for the specified month
     const leaves = await Leave.find({
@@ -1834,7 +1881,7 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
     // Create a map of attendance records by date for easier lookup
     const attendanceMap = {};
     attendanceRecords.forEach((record) => {
-      const date = new Date(record.date);
+      const date = dateUtils.startOfDay(new Date(record.date));
       const day = date.getDate();
       attendanceMap[day] = record;
     });
@@ -1842,10 +1889,12 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
     // Create a map of leave records by date for easier lookup
     const leaveMap = {};
     leaves.forEach((leave) => {
-      const leaveStart = new Date(
-        Math.max(new Date(leave.startDate), startDate)
+      const leaveStart = dateUtils.startOfDay(
+        new Date(Math.max(new Date(leave.startDate), startDate))
       );
-      const leaveEnd = new Date(Math.min(new Date(leave.endDate), endDate));
+      const leaveEnd = dateUtils.startOfDay(
+        new Date(Math.min(new Date(leave.endDate), endDate))
+      );
 
       for (
         let current = new Date(leaveStart);
@@ -1860,12 +1909,13 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
     // Initialize calendar data for the month
     const totalDays = endDate.getDate();
     const calendarData = {};
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = dateUtils.startOfDay();
 
     for (let day = 1; day <= totalDays; day++) {
-      const currentDate = new Date(targetYear, targetMonth, day);
-      const dayOfWeek = currentDate.getDay(); // 0 is Sunday, 6 is Saturday
+      const currentDate = dateUtils.startOfDay(
+        new Date(targetYear, targetMonth, day)
+      );
+      const dayOfWeek = currentDate.getDay();
       const leave = leaveMap[day];
 
       // Check if the day is a weekend (Sunday or 2nd/4th Saturday)
@@ -1893,10 +1943,10 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
         continue;
       }
 
-      // Check if the date is in the future
-      if (currentDate > today) {
+      // Check if the date is in the future using IST
+      if (dateUtils.compareDates(currentDate, today) > 0) {
         if (leave) {
-          // Handle leave on future dates - same logic as for past dates with leaves
+          // Handle leave on future dates
           let leaveType;
           switch (leave.leaveReason) {
             case "Sick Leave":
@@ -1984,7 +2034,6 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
 
       // Leave record overrides attendance
       if (leave) {
-        // Abbreviate leave reasons
         let leaveType;
         switch (leave.leaveReason) {
           case "Sick Leave":
@@ -2003,7 +2052,6 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
             leaveType = "L";
         }
 
-        // Get the leave duration type
         let durationLabel;
         switch (leave.leaveType) {
           case "Half Day":
@@ -2014,15 +2062,13 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
             break;
           case "Full Day":
           default:
-            durationLabel = ""; // No special label for full day
+            durationLabel = "";
         }
 
-        // Create the full leave label
         const fullLeaveType = durationLabel
           ? `${leaveType}-${durationLabel}`
           : leaveType;
 
-        // Set the leave status based on approval status
         status =
           leave.status === "Approved"
             ? `${fullLeaveType} (Approved)`
@@ -2031,7 +2077,7 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
             : `${fullLeaveType} (Pending)`;
 
         type = fullLeaveType;
-        present = false; // If on leave, not present
+        present = false;
       }
 
       calendarData[day] = {
@@ -2051,7 +2097,7 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
         attendanceDetails: attendance
           ? {
               id: attendance._id,
-              date: attendance.date,
+              date: dateUtils.formatDate(attendance.date),
               present: attendance.present,
             }
           : null,
@@ -2061,27 +2107,34 @@ const getAttendanceCalendar = handleAsync(async (req, res) => {
     return res.status(200).json({
       success: true,
       data: {
-        month: targetMonth + 1, // Convert back to 1-based month for response
+        month: targetMonth + 1,
         year: targetYear,
         totalDays,
         calendar: calendarData,
         presentDays: attendanceRecords.filter((record) => record.present)
           .length,
         leaveDays: leaves.reduce((total, leave) => {
-          // Count days within the month for each leave
-          const leaveStart = new Date(
-            Math.max(new Date(leave.startDate), startDate)
+          const leaveStart = dateUtils.startOfDay(
+            new Date(Math.max(new Date(leave.startDate), startDate))
           );
-          const leaveEnd = new Date(Math.min(new Date(leave.endDate), endDate));
+          const leaveEnd = dateUtils.startOfDay(
+            new Date(Math.min(new Date(leave.endDate), endDate))
+          );
 
-          // Calculate number of days
           const diffTime = Math.abs(leaveEnd - leaveStart);
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 
           return total + diffDays;
         }, 0),
-        attendanceRecords,
-        leaves,
+        attendanceRecords: attendanceRecords.map((record) => ({
+          ...record,
+          date: dateUtils.formatDate(record.date),
+        })),
+        leaves: leaves.map((leave) => ({
+          ...leave,
+          startDate: dateUtils.formatDate(leave.startDate),
+          endDate: dateUtils.formatDate(leave.endDate),
+        })),
       },
     });
   } catch (error) {
@@ -2103,15 +2156,14 @@ const generateDailyReport = handleAsync(async (req, res) => {
   try {
     const { date } = req.body;
 
-    // Validate date parameter
+    // Validate date parameter and convert to IST
     let reportDate;
     if (!date) {
-      // If no date provided, use yesterday
-      reportDate = new Date();
-      reportDate.setDate(reportDate.getDate() - 1);
+      // If no date provided, use yesterday in IST
+      reportDate = dateUtils.addTime(dateUtils.startOfDay(), -1, "days");
     } else {
-      // Parse provided date
-      reportDate = new Date(date);
+      // Parse provided date and convert to IST
+      reportDate = dateUtils.convertToIST(new Date(date));
       if (isNaN(reportDate.getTime())) {
         return res.status(400).json({
           success: false,
@@ -2125,7 +2177,9 @@ const generateDailyReport = handleAsync(async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Daily report for ${reportDate.toDateString()} generated and sent successfully.`,
+      message: `Daily report for ${dateUtils.formatDate(
+        reportDate
+      )} generated and sent successfully.`,
     });
   } catch (error) {
     console.error("Error generating daily report:", error);

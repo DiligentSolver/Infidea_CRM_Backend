@@ -286,6 +286,7 @@ router.get("/speaking-languages", async (req, res) => {
 
 // Job roles
 const jobRoles = [
+  "Anything will work",
   "Accounts & Finance",
   "Admin & Back Office Operations",
   "BPO & Call Center",
@@ -408,6 +409,7 @@ router.get("/leave-reasons", (req, res) => {
 });
 
 const jobProfiles = [
+  "Anything will work",
   "Academic Counselor",
   "Accountant",
   "Accounts Executive",

@@ -9,6 +9,7 @@ const CandidateSchema = new mongoose.Schema(
     gender: { type: String },
     experience: { type: String },
     qualification: { type: String },
+    passingYear: { type: String },
     state: { type: String },
     city: { type: String },
     salaryExpectation: { type: String },

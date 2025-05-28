@@ -338,6 +338,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
     gender,
     experience,
     qualification,
+    passingYear,
     state,
     city,
     salaryExpectation,
@@ -472,6 +473,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
     gender: gender || "-",
     experience: experience || "-",
     qualification: qualification || "-",
+    passingYear: passingYear || "-",
     state: state || "-",
     city: city || "-",
     salaryExpectation: salaryExpectation || "-",
@@ -623,11 +625,10 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
           record.employee.toString() === req.employee._id.toString()
       );
 
-      const employeeRemarksHistory = (candidate.remarks || []).filter(
-        (remark) =>
-          remark.employee &&
-          remark.employee.toString() === req.employee._id.toString()
-      );
+      const callSummary = candidate.callDurationHistory.map((record) => ({
+        date: record.date,
+        summary: record.summary,
+      }));
 
       // Check if candidate has an active joining
       const joiningActive = await hasActiveJoining(candidate.mobileNo);
@@ -643,7 +644,7 @@ exports.getAllCandidates = handleAsync(async (req, res, next) => {
         remainingDays,
         remainingTime,
         employeeCallHistory,
-        employeeRemarksHistory,
+        callSummary,
         editable,
         hasActiveJoining: joiningActive,
         isActivelyRegisteredByMe: !!myActiveRegistration,
@@ -1254,12 +1255,12 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
               duration: "0",
               employee: req.employee._id,
               date: dateUtils.getCurrentDate(),
-              summary: "Imported from Excel",
+              summary: "-",
             },
           ],
           remarks: [
             {
-              remark: "Created via Excel import",
+              remark: "-",
               date: dateUtils.getCurrentDate(),
               employee: req.employee._id,
             },
@@ -1286,7 +1287,7 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
             interviewDate: candidate.interviewDate,
             status: "Scheduled",
             createdBy: req.employee._id,
-            remarks: "Created during bulk upload",
+            remarks: "-",
           });
         }
 
@@ -1299,7 +1300,7 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
             candidateName: candidate.name,
             contactNumber: candidate.mobileNo,
             walkinDate: candidate.walkinDate,
-            remarks: "Created during bulk upload",
+            remarks: "-",
             status: "Walkin at Infidea",
             createdBy: req.employee._id,
           });

@@ -316,10 +316,10 @@ exports.getDailyProductivity = async (req, res) => {
   try {
     const employeeId = req.employee._id;
 
-    // Get the start and end of today
-    const today = new Date();
-    const startOfDay = new Date(today.setHours(0, 0, 0, 0)); // Start from beginning of the day
-    const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+    // Get the start and end of today in IST timezone
+    const todayIST = moment().tz(IST_TIMEZONE);
+    const startOfDay = todayIST.clone().startOf("day").toDate();
+    const endOfDay = todayIST.clone().endOf("day").toDate();
 
     // Find all activities for today
     const activities = await Activity.find({
@@ -333,35 +333,39 @@ exports.getDailyProductivity = async (req, res) => {
     );
 
     // Calculate productive time (total time spent "On Desk")
-    let productiveTimeInMinutes = 0;
+    let productiveTimeInSeconds = 0;
 
     const onDeskActivities = activities.filter(
       (activity) => activity.type === "On Desk"
     );
 
     for (const activity of onDeskActivities) {
-      const start = new Date(activity.startTime);
-      const end = activity.isActive ? new Date() : new Date(activity.endTime);
+      const start = moment(activity.startTime);
+      const end = activity.isActive ? moment() : moment(activity.endTime);
 
-      // Calculate duration in minutes
-      const durationInMs = end - start;
-      const durationInMinutes = Math.floor(durationInMs / (1000 * 60));
-
-      productiveTimeInMinutes += durationInMinutes;
+      // Calculate duration in seconds
+      const durationInSeconds = end.diff(start, "seconds");
+      productiveTimeInSeconds += durationInSeconds;
     }
 
-    // Format productive time as hours and minutes
-    const hours = Math.floor(productiveTimeInMinutes / 60);
-    const minutes = productiveTimeInMinutes % 60;
-    const formattedProductiveTime = `${hours}h ${minutes}m`;
+    // Convert total seconds to hours, minutes, and remaining seconds
+    const hours = Math.floor(productiveTimeInSeconds / 3600);
+    const minutes = Math.floor((productiveTimeInSeconds % 3600) / 60);
+    const productiveTimeInMinutes = Math.round(productiveTimeInSeconds / 60);
+
+    // Format with hours and minutes, ensuring we don't show 0h if less than an hour
+    const formattedProductiveTime =
+      hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 
     return res.status(200).json({
       success: true,
-      date: new Date(),
+      date: moment().tz(IST_TIMEZONE).toDate(),
       firstOnDeskTime: firstOnDesk ? firstOnDesk.startTime : null,
       todayProductiveTimeInMinutes: productiveTimeInMinutes,
       todayFormattedProductiveTime: formattedProductiveTime,
       todayOnDeskActivitiesCount: onDeskActivities.length,
+      // Add total seconds for more precise tracking if needed
+      todayProductiveTimeInSeconds: productiveTimeInSeconds,
     });
   } catch (error) {
     console.error("Get daily productivity error:", error);
