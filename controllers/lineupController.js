@@ -47,8 +47,7 @@ const createLineup = handleAsync(async (req, res) => {
     !process ||
     !lineupDate ||
     !interviewDate ||
-    !status ||
-    !lineupRemarks
+    !status
   ) {
     return res.status(400).json({
       success: false,
@@ -415,6 +414,15 @@ const updateLineup = handleAsync(async (req, res) => {
       remainingTime: lockStatus.remainingTime,
       lockExpiryDate: lockStatus.lockExpiryDate,
     });
+  }
+
+  // If no remarks provided in update, keep the existing remarks
+  if (
+    updateData.remarks === undefined ||
+    updateData.remarks === null ||
+    updateData.remarks === ""
+  ) {
+    updateData.remarks = existingLineup.remarks;
   }
 
   // Update the lineup

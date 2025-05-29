@@ -517,7 +517,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
       interviewDate: interviewDate,
       status: "Scheduled",
       createdBy: req.employee._id,
-      remarks: remarks,
+      remarks: remarks || "Initial lineup created",
     });
   }
 
@@ -530,7 +530,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
       candidateName: name,
       contactNumber: mobileNo,
       walkinDate: walkinDate,
-      remarks: remarks,
+      walkinRemarks: remarks || "Initial walkin created",
       status: "Walkin at Infidea",
       createdBy: req.employee._id,
     });
@@ -910,7 +910,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
 
   // Handle lineup remarks if provided
   if (
-    req.body.lineupRemarks &&
+    (req.body.lineupRemarks || req.body.lineupRemarks === "") &&
     req.body.lineupCompany &&
     req.body.lineupProcess &&
     req.body.lineupDate &&
@@ -920,8 +920,20 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
       existingCandidate.lineupRemarksHistory = [];
     }
 
+    // Use previous remarks if new ones are empty
+    const remarkText =
+      req.body.lineupRemarks === undefined ||
+      req.body.lineupRemarks === null ||
+      req.body.lineupRemarks === ""
+        ? existingCandidate.lineupRemarksHistory.length > 0
+          ? existingCandidate.lineupRemarksHistory[
+              existingCandidate.lineupRemarksHistory.length - 1
+            ].remark
+          : "Updated lineup"
+        : req.body.lineupRemarks;
+
     existingCandidate.lineupRemarksHistory.push({
-      remark: req.body.lineupRemarks,
+      remark: remarkText,
       date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
       company: req.body.lineupCompany,
@@ -934,13 +946,28 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
   }
 
   // Handle walkin remarks if provided
-  if (req.body.walkinRemarks && req.body.walkinDate) {
+  if (
+    (req.body.walkinRemarks || req.body.walkinRemarks === "") &&
+    req.body.walkinDate
+  ) {
     if (!existingCandidate.walkinRemarksHistory) {
       existingCandidate.walkinRemarksHistory = [];
     }
 
+    // Use previous remarks if new ones are empty
+    const remarkText =
+      req.body.walkinRemarks === undefined ||
+      req.body.walkinRemarks === null ||
+      req.body.walkinRemarks === ""
+        ? existingCandidate.walkinRemarksHistory.length > 0
+          ? existingCandidate.walkinRemarksHistory[
+              existingCandidate.walkinRemarksHistory.length - 1
+            ].remark
+          : "Updated walkin"
+        : req.body.walkinRemarks;
+
     existingCandidate.walkinRemarksHistory.push({
-      remark: req.body.walkinRemarks,
+      remark: remarkText,
       date: dateUtils.getCurrentDate(),
       employee: req.employee._id,
       walkinDate: new Date(req.body.walkinDate),
@@ -1042,7 +1069,6 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     const existingWalkin = await Walkin.findOne({
       contactNumber: req.body.mobileNo || candidate.mobileNo,
       walkinDate: req.body.walkinDate,
-      walkinRemarks: req.body.walkinRemarks,
     });
 
     // Only create a new walkin record if none exists
@@ -1052,7 +1078,7 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
         candidateName: req.body.name || candidate.name,
         contactNumber: req.body.mobileNo || candidate.mobileNo,
         walkinDate: req.body.walkinDate,
-        walkinRemarks: req.body.walkinRemarks,
+        walkinRemarks: req.body.walkinRemarks || "Updated from candidate",
         status: "Walkin at Infidea",
         createdBy: req.employee._id,
       });

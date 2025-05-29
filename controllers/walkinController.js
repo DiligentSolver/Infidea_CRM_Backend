@@ -20,7 +20,7 @@ const createWalkin = handleAsync(async (req, res) => {
 
   console.log(req.body);
 
-  if (!candidateName || !contactNumber || !walkinDate || !walkinRemarks) {
+  if (!candidateName || !contactNumber || !walkinDate) {
     return res.status(400).json({
       success: false,
       message: "All required fields must be provided",
@@ -231,6 +231,15 @@ const updateWalkin = handleAsync(async (req, res) => {
     });
   }
 
+  // If no remarks provided in update, keep the existing remarks
+  if (
+    updateData.walkinRemarks === undefined ||
+    updateData.walkinRemarks === null ||
+    updateData.walkinRemarks === ""
+  ) {
+    updateData.walkinRemarks = existingWalkin.walkinRemarks;
+  }
+
   // Update the walkin
   const walkin = await Walkin.findByIdAndUpdate(walkinId, updateData, {
     new: true,
@@ -241,7 +250,7 @@ const updateWalkin = handleAsync(async (req, res) => {
   const candidate = await Candidate.findOne({ mobileNo: walkin.contactNumber });
   if (candidate) {
     const remarkHistory = {
-      remark: walkin.remarks,
+      remark: walkin.walkinRemarks,
       date: Date.now(),
       employee: req.employee._id,
     };

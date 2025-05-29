@@ -110,7 +110,6 @@ const createJoining = handleAsync(async (req, res) => {
     !company ||
     !process ||
     !joiningDate ||
-    !remarks ||
     !joiningType
   ) {
     return res.status(400).json({
