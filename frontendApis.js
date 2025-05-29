@@ -344,8 +344,225 @@ router.get("/masterdegrees", async (req, res) => {
   res.json(mastersDegrees);
 });
 
+const qualifications = [
+  // BTech / BE
+  "BTech - Computer Science and Engineering",
+  "BTech - Information Technology",
+  "BTech - Mechanical Engineering",
+  "BTech - Electrical Engineering",
+  "BTech - Electronics and Communication Engineering",
+  "BTech - Civil Engineering",
+  "BTech - Artificial Intelligence and Machine Learning",
+  "BTech - Data Science",
+  "BTech - Mechatronics",
+  "BTech - Robotics",
+  "BTech - Chemical Engineering",
+  "BTech - Aeronautical Engineering",
+  "BTech - Petroleum Engineering",
+  "BE - Mechanical Engineering",
+  "BE - Electrical Engineering",
+  "BE - Civil Engineering",
+  "BE - Computer Science",
+
+  // BSc
+  "BSc - Physics",
+  "BSc - Chemistry",
+  "BSc - Mathematics",
+  "BSc - Computer Science",
+  "BSc - Information Technology",
+  "BSc - Biotechnology",
+  "BSc - Microbiology",
+  "BSc - Agriculture",
+  "BSc - Zoology",
+  "BSc - Botany",
+  "BSc - Environmental Science",
+  "BSc - Statistics",
+
+  // BA
+  "BA - English",
+  "BA - History",
+  "BA - Political Science",
+  "BA - Economics",
+  "BA - Psychology",
+  "BA - Sociology",
+  "BA - Geography",
+  "BA - Philosophy",
+  "BA - Journalism and Mass Communication",
+  "BA - Public Administration",
+  "BA - Hindi",
+
+  // BCom
+  "BCom - General",
+  "BCom - Accounting and Finance",
+  "BCom - Banking and Insurance",
+  "BCom - Taxation",
+  "BCom - Computer Applications",
+  "BCom - Economics",
+
+  // BBA
+  "BBA - General",
+  "BBA - Finance",
+  "BBA - Marketing",
+  "BBA - Human Resource Management",
+  "BBA - Business Analytics",
+  "BBA - International Business",
+  "BBA - Operations Management",
+
+  // Law
+  "LLB - Criminal Law",
+  "LLB - Civil Law",
+  "LLB - Constitutional Law",
+  "LLB - Corporate Law",
+  "LLB - Taxation Law",
+  "BBA-LLB - Business Law",
+  "BCom-LLB - Financial Law",
+
+  // MBBS
+  "MBBS - General Medicine",
+
+  // BDS
+  "BDS - Dental Surgery",
+
+  // BPharm / DPharm
+  "BPharm - Pharmaceutics",
+  "BPharm - Pharmacology",
+  "BPharm - Pharmaceutical Chemistry",
+  "BPharm - Clinical Pharmacy",
+  "DPharm - General",
+
+  // BCA
+  "BCA - General",
+  "BCA - Cybersecurity",
+  "BCA - Cloud Computing",
+  "BCA - Data Analytics",
+
+  // BArch
+  "BArch - Architecture Design",
+  "BArch - Urban Planning",
+  "BArch - Landscape Architecture",
+
+  // Others
+  "BHM - Hotel Management",
+  "BFA - Painting",
+  "BFA - Sculpture",
+  "BFA - Applied Arts",
+  "BSW - Social Work",
+  "BASLP - Audiology and Speech Language Pathology",
+  "BPT - Physiotherapy",
+  "BDes - Fashion Design",
+  "BDes - Interior Design",
+  "BDes - Industrial Design",
+  "BDes - Communication Design",
+
+  // Postgraduate Degrees
+
+  // MBA
+  "MBA - Marketing",
+  "MBA - Finance",
+  "MBA - Human Resource Management",
+  "MBA - Operations Management",
+  "MBA - International Business",
+  "MBA - Business Analytics",
+  "MBA - Rural Management",
+  "MBA - Healthcare Management",
+
+  // MTech / ME
+  "MTech - Computer Science",
+  "MTech - Civil Engineering",
+  "MTech - Electrical Engineering",
+  "MTech - VLSI Design",
+  "MTech - Embedded Systems",
+  "MTech - Structural Engineering",
+  "ME - Mechanical Engineering",
+  "ME - Electronics Engineering",
+
+  // MSc
+  "MSc - Physics",
+  "MSc - Chemistry",
+  "MSc - Mathematics",
+  "MSc - Biotechnology",
+  "MSc - Microbiology",
+  "MSc - Zoology",
+  "MSc - Botany",
+  "MSc - Environmental Science",
+  "MSc - Data Science",
+  "MSc - Statistics",
+
+  // MA
+  "MA - English",
+  "MA - History",
+  "MA - Political Science",
+  "MA - Economics",
+  "MA - Sociology",
+  "MA - Psychology",
+  "MA - Journalism",
+  "MA - Public Administration",
+
+  // MCom
+  "MCom - General",
+  "MCom - Accounting",
+  "MCom - Finance",
+  "MCom - Taxation",
+
+  // MCA
+  "MCA - Software Engineering",
+  "MCA - Cybersecurity",
+  "MCA - Cloud Computing",
+  "MCA - Data Science",
+
+  // MPharm
+  "MPharm - Pharmaceutics",
+  "MPharm - Pharmacognosy",
+  "MPharm - Pharmaceutical Analysis",
+
+  // MDS
+  "MDS - Oral Surgery",
+  "MDS - Orthodontics",
+  "MDS - Periodontics",
+  "MDS - Prosthodontics",
+
+  // MD / MS
+  "MD - General Medicine",
+  "MD - Pediatrics",
+  "MD - Psychiatry",
+  "MS - General Surgery",
+  "MS - Orthopedics",
+  "MS - ENT",
+
+  // MEd
+  "MEd - Education",
+  "MHM - Hotel Management",
+  "MFA - Painting",
+  "MSW - Social Work",
+  "MASLP - Speech Pathology",
+  "MPT - Orthopedics",
+  "MPT - Neurology",
+  "MDes - Fashion Design",
+  "MDes - Product Design",
+  "MStat - Applied Statistics",
+
+  // Dual Degree
+  "MTech-PhD - Interdisciplinary Research",
+
+  // Doctorate
+  "PhD - Computer Science",
+  "PhD - Engineering",
+  "PhD - Social Sciences",
+  "PhD - Law",
+  "PhD - Physics",
+  "PhD - Management",
+  "PhD - Biotechnology",
+
+  // MPhil
+  "MPhil - Psychology",
+  "MPhil - Economics",
+
+  // Other / Custom
+  "Other - Not Listed",
+];
+
 router.get("/qualifications", async (req, res) => {
-  res.json([...schoolDegree, ...graduateDegrees, ...mastersDegrees]);
+  res.json(qualifications);
 });
 
 // Mixed list of most spoken Indian and corporate languages
