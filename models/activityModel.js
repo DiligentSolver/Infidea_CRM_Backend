@@ -37,9 +37,6 @@ const ActivitySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Create compound index to efficiently query for active activities per employee
-ActivitySchema.index({ employeeId: 1, isActive: 1 });
-
 // Add a unique index to ensure only one active activity per employee
 ActivitySchema.index(
   { employeeId: 1, isActive: 1 },

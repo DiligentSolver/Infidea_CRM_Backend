@@ -2,13 +2,7 @@ const cron = require("node-cron");
 const Activity = require("../models/activityModel");
 const Employee = require("../models/employeeModel");
 const { closeAllActiveActivities } = require("./activityUtils");
-const {
-  getCurrentDate,
-  addTime,
-  getCurrentISTHour,
-  getCurrentISTMinute,
-  IST_TIMEZONE,
-} = require("./dateUtils");
+const { getCurrentDate, addTime, IST_TIMEZONE } = require("./dateUtils");
 const moment = require("moment-timezone");
 const { io } = global;
 
