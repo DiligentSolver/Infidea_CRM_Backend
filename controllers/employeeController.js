@@ -4,6 +4,25 @@ const { handleEncryptData } = require("../config/auth");
 const formatAndValidateMobile = require("../utils/validators/formatMobileNumber");
 const { formatAndValidateEmail } = require("../utils/validators/formatEmail");
 
+// Calculate profile completion percentage
+const calculateProfileCompletion = (employee) => {
+  const requiredFields = [
+    "firstName",
+    "lastName",
+    "email",
+    "mobile",
+    "profileImage",
+    "designation",
+    "department",
+  ];
+
+  const completedFields = requiredFields.filter(
+    (field) => employee[field] && employee[field].toString().trim() !== ""
+  );
+
+  return Math.round((completedFields.length / requiredFields.length) * 100);
+};
+
 //Send Employee Data
 const sendEmployeeDetails = handleAsync(async (req, res) => {
   if (!req.employee || !req.employee._id) {
@@ -16,7 +35,13 @@ const sendEmployeeDetails = handleAsync(async (req, res) => {
     "-password -access_list"
   ); // Exclude sensitive fields
 
-  return res.status(200).json({ message: "Employee found", employee });
+  const profileCompletionPercentage = calculateProfileCompletion(employee);
+
+  return res.status(200).json({
+    message: "Employee found",
+    employee,
+    profileCompletionPercentage,
+  });
 });
 
 // Update Employee Profile
