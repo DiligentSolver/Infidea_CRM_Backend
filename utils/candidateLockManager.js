@@ -194,7 +194,9 @@ const checkCandidateLock = async (contactNumber) => {
 const syncJoiningCandidateLocks = async () => {
   try {
     const joinings = await Joining.find({
-      status: "Joining Details Received",
+      status: {
+        $in: ["Joining Details Received", "Joining Details Not Received"],
+      },
     });
 
     let updatedCount = 0;
