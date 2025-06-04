@@ -111,4 +111,11 @@ router.get(
   candidateController.checkCandidateLockStatus
 );
 
+// Get candidate name by mobile number
+router.get(
+  "/get-by-mobile/:mobileNo",
+  employeeMiddleware,
+  candidateController.getCandidateByMobile
+);
+
 module.exports = router;

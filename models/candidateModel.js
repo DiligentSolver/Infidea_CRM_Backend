@@ -90,7 +90,7 @@ const CandidateSchema = new mongoose.Schema(
     walkinDate: { type: String },
     workMode: {
       type: String,
-      enum: ["Office", "Hybrid", "Any Mode"],
+      enum: ["Office", "Hybrid", "Any Mode", "Work From Home"],
     },
     lineupRemarksHistory: [
       {

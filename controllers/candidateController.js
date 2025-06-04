@@ -51,10 +51,17 @@ exports.checkDuplicity = handleAsync(async (req, res, next) => {
   }
 
   // Notify the original employee who registered this candidate
-  // only if it's a different employee checking
+  // only if it's a different employee checking AND candidate has specific status
+  const notificationStatuses = [
+    "Joined",
+    "Pipeline",
+    "Walkin At Infidea",
+    "Lineup",
+  ];
   if (
     candidate.lastRegisteredBy &&
-    candidate.lastRegisteredBy._id.toString() !== req.employee._id.toString()
+    candidate.lastRegisteredBy._id.toString() !== req.employee._id.toString() &&
+    notificationStatuses.includes(candidate.callStatus)
   ) {
     try {
       const checkingEmployee = await Employee.findById(req.employee._id);
@@ -103,8 +110,14 @@ exports.checkDulicateInputField = handleAsync(async (req, res, next) => {
     ? candidate.lastRegisteredBy._id
     : null;
 
-  // Send notification to the previous owner
-  if (previousOwnerId) {
+  // Send notification to the previous owner only for specific statuses
+  const notificationStatuses = [
+    "Joined",
+    "Pipeline",
+    "Walkin At Infidea",
+    "Lineup",
+  ];
+  if (previousOwnerId && notificationStatuses.includes(candidate.callStatus)) {
     try {
       const markingEmployee = await Employee.findById(req.employee._id);
 
@@ -1628,5 +1641,31 @@ exports.testCandidateEditability = handleAsync(async (req, res, next) => {
           }
         : null,
     },
+  });
+});
+
+// Get candidate name by mobile number
+exports.getCandidateByMobile = handleAsync(async (req, res, next) => {
+  const { mobileNo } = req.params;
+
+  if (!mobileNo) {
+    return res.status(400).json({
+      status: "fail",
+      message: "Mobile number is required",
+    });
+  }
+
+  const candidate = await Candidate.findOne({ mobileNo });
+
+  if (!candidate) {
+    return res.status(404).json({
+      status: "fail",
+      message: "No candidate found with that mobile number",
+    });
+  }
+
+  res.status(200).json({
+    status: "success",
+    name: candidate.name,
   });
 });

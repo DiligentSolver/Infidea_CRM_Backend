@@ -5,10 +5,11 @@ const { IST_TIMEZONE } = require("../utils/dateUtils");
 
 // Define time limits for activities
 const timeLimits = {
-  "Lunch Break": 30, // 30 minutes
+  "Lunch Break": 1, // 30 minutes
   "Interview Session": 15, // 15 minutes
   "Client Meeting": 30, // 30 minutes
   "Team Meeting": 30, // 30 minutes
+  "Office Celebration": 60, // 60 minutes
   // Default activities don't have time limits
   "On Desk": null,
 };
@@ -327,45 +328,38 @@ exports.getDailyProductivity = async (req, res) => {
       startTime: { $gte: startOfDay, $lte: endOfDay },
     }).sort({ startTime: 1 });
 
-    // Find first "On Desk" activity
-    const firstOnDesk = activities.find(
-      (activity) => activity.type === "On Desk"
-    );
+    // Find first activity of the day (regardless of type)
+    const firstActivity = activities.length > 0 ? activities[0] : null;
 
-    // Calculate productive time (total time spent "On Desk")
-    let productiveTimeInSeconds = 0;
+    // Calculate time from first activity till now
+    let totalTimeInSeconds = 0;
 
-    const onDeskActivities = activities.filter(
-      (activity) => activity.type === "On Desk"
-    );
-
-    for (const activity of onDeskActivities) {
-      const start = moment(activity.startTime);
-      const end = activity.isActive ? moment() : moment(activity.endTime);
+    if (firstActivity) {
+      const start = moment(firstActivity.startTime);
+      const now = moment().tz(IST_TIMEZONE);
 
       // Calculate duration in seconds
-      const durationInSeconds = end.diff(start, "seconds");
-      productiveTimeInSeconds += durationInSeconds;
+      totalTimeInSeconds = now.diff(start, "seconds");
     }
 
     // Convert total seconds to hours, minutes, and remaining seconds
-    const hours = Math.floor(productiveTimeInSeconds / 3600);
-    const minutes = Math.floor((productiveTimeInSeconds % 3600) / 60);
-    const productiveTimeInMinutes = Math.round(productiveTimeInSeconds / 60);
+    const hours = Math.floor(totalTimeInSeconds / 3600);
+    const minutes = Math.floor((totalTimeInSeconds % 3600) / 60);
+    const totalTimeInMinutes = Math.round(totalTimeInSeconds / 60);
 
     // Format with hours and minutes, ensuring we don't show 0h if less than an hour
-    const formattedProductiveTime =
+    const formattedTotalTime =
       hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 
     return res.status(200).json({
       success: true,
       date: moment().tz(IST_TIMEZONE).toDate(),
-      firstOnDeskTime: firstOnDesk ? firstOnDesk.startTime : null,
-      todayProductiveTimeInMinutes: productiveTimeInMinutes,
-      todayFormattedProductiveTime: formattedProductiveTime,
-      todayOnDeskActivitiesCount: onDeskActivities.length,
+      firstActivityTime: firstActivity ? firstActivity.startTime : null,
+      totalTimeInMinutes: totalTimeInMinutes,
+      formattedTotalTime: formattedTotalTime,
+      activitiesCount: activities.length,
       // Add total seconds for more precise tracking if needed
-      todayProductiveTimeInSeconds: productiveTimeInSeconds,
+      totalTimeInSeconds: totalTimeInSeconds,
     });
   } catch (error) {
     console.error("Get daily productivity error:", error);
