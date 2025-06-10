@@ -2,7 +2,10 @@ const Walkin = require("../models/walkinModel");
 const { handleAsync } = require("../utils/attemptAndOtp");
 const mongoose = require("mongoose");
 const Candidate = require("../models/candidateModel");
-const { checkCandidateLock } = require("../utils/candidateLockManager");
+const {
+  checkCandidateLock,
+  lockCandidate,
+} = require("../utils/candidateLockManager");
 const Joining = require("../models/joiningModel");
 
 // Helper function to check if a walkin candidate is part of an active joining
@@ -91,6 +94,9 @@ const createWalkin = handleAsync(async (req, res) => {
       },
     });
   }
+
+  // Lock the candidate for walkin status (30 days by default)
+  await lockCandidate(contactNumber, req.employee._id, "walkin");
 
   return res.status(201).json({
     success: true,
@@ -260,6 +266,9 @@ const updateWalkin = handleAsync(async (req, res) => {
       $push: { remarks: remarkHistory },
     });
   }
+
+  // Lock the candidate for walkin status (30 days by default)
+  await lockCandidate(existingWalkin.contactNumber, req.employee._id, "walkin");
 
   return res.status(200).json({
     success: true,

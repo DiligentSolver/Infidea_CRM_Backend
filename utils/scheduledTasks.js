@@ -69,16 +69,16 @@ const scheduleDailyActivityReset = () => {
 };
 
 /**
- * Scheduled task to close all active activities at 7:50 PM every day
+ * Scheduled task to close all active activities at 8:00 PM every day
  */
 const scheduleActivityClosing = () => {
-  // Run at 7:50 PM (19:50) every day in IST
+  // Run at 8:00 PM (20:00) every day in IST
   cron.schedule(
-    "50 19 * * *",
+    "0 20 * * *",
     async () => {
       try {
         console.log(
-          "Running scheduled task: Auto-closing activities at 7:50 PM"
+          "Running scheduled task: Auto-closing activities at 8:00 PM"
         );
 
         // Get all employees with active activities
@@ -126,9 +126,9 @@ const scheduleActivityClosing = () => {
     }
   );
 
-  // Safety check 2 minutes later at 7:52 PM
+  // Safety check 2 minutes later at 8:00 PM
   cron.schedule(
-    "52 19 * * *",
+    "0 20 * * *",
     async () => {
       try {
         console.log("Running safety check for unclosed activities");
@@ -160,7 +160,7 @@ const scheduleActivityClosing = () => {
   );
 
   console.log(
-    "Scheduled task registered: Auto-closing activities at 7:50 PM IST"
+    "Scheduled task registered: Auto-closing activities at 8:00 PM IST"
   );
 };
 
@@ -196,9 +196,9 @@ const scheduleNotificationCleanup = () => {
  * Schedule automatic logout of all employees at 7:58 PM IST daily
  */
 const scheduleAutoLogout = () => {
-  // Schedule for 7:58 PM IST daily (19:58)
+  // Schedule for 8:00 PM IST daily (20:00)
   cron.schedule(
-    "58 19 * * *",
+    "0 20 * * *",
     async () => {
       try {
         console.log("Running auto logout scheduler...");
@@ -221,7 +221,7 @@ const scheduleAutoLogout = () => {
         if (io) {
           loggedInEmployees.forEach((employee) => {
             io.to(`employee-${employee._id}`).emit("force_logout", {
-              message: "Auto logout at end of day (7:58 PM)",
+              message: "Auto logout at end of day (8:00 PM)",
             });
           });
         }
@@ -236,33 +236,7 @@ const scheduleAutoLogout = () => {
     }
   );
 
-  console.log("Scheduled task registered: Auto logout at 7:58 PM IST");
-};
-
-/**
- * Scheduler to check and expire tokens at 9 PM IST daily
- */
-const scheduleTokenExpiryCheck = () => {
-  // Run at 9 PM (21:00) every day in IST
-  cron.schedule(
-    "0 21 * * *",
-    async () => {
-      try {
-        // Here you would implement logic to blacklist tokens or update DB/session store
-        // For stateless JWT, this is a placeholder
-        console.log(
-          "[Token Expiry Scheduler] 9 PM IST: All tokens should now be considered expired."
-        );
-      } catch (error) {
-        console.error("Error in token expiry scheduler:", error);
-      }
-    },
-    {
-      timezone: IST_TIMEZONE,
-    }
-  );
-
-  console.log("Scheduled task registered: Token expiry check at 9 PM IST");
+  console.log("Scheduled task registered: Auto logout at 8:00 PM IST");
 };
 
 module.exports = {
@@ -270,5 +244,4 @@ module.exports = {
   scheduleNotificationCleanup,
   scheduleDailyActivityReset,
   scheduleAutoLogout,
-  scheduleTokenExpiryCheck,
 };

@@ -158,6 +158,78 @@ const calculateTodayTime = async (employeeId, today, tomorrow) => {
 };
 
 /**
+ * Calculate average time spent per call based on call durations from candidate records
+ * @param {ObjectId} employeeId - Employee ID
+ * @param {Date} startDate - Start date for filtering calls
+ * @param {Date} endDate - End date for filtering calls
+ * @returns {Number} - Average time in minutes
+ */
+const calculateAverageCallTime = async (employeeId, startDate, endDate) => {
+  try {
+    // Get candidates with call history
+    const candidates = await Candidate.find({
+      $or: [
+        { lastRegisteredBy: employeeId },
+        { createdBy: employeeId },
+        {
+          registrationHistory: { $elemMatch: { registeredBy: employeeId } },
+        },
+      ],
+      callDurationHistory: {
+        $elemMatch: {
+          employee: employeeId,
+          date: { $gte: startDate, $lt: endDate },
+          duration: { $gt: 0 },
+        },
+      },
+    })
+      .populate({
+        path: "callDurationHistory",
+        select: "duration employee date",
+      })
+      .lean();
+
+    if (!candidates || candidates.length === 0) {
+      return 0;
+    }
+
+    let totalMinutes = 0;
+    let callCount = 0;
+
+    // Calculate total minutes and count calls
+    candidates.forEach((candidate) => {
+      if (
+        candidate.callDurationHistory &&
+        candidate.callDurationHistory.length > 0
+      ) {
+        candidate.callDurationHistory.forEach((record) => {
+          if (
+            record.employee &&
+            record.employee.toString() === employeeId.toString() &&
+            record.date &&
+            record.date >= startDate &&
+            record.date < endDate &&
+            record.duration
+          ) {
+            const durationMinutes = parseInt(record.duration) || 0;
+            if (durationMinutes > 0) {
+              totalMinutes += durationMinutes;
+              callCount++;
+            }
+          }
+        });
+      }
+    });
+
+    // Calculate and return average
+    return callCount > 0 ? totalMinutes / callCount : 0;
+  } catch (error) {
+    console.error("Error calculating average call time:", error);
+    return 0;
+  }
+};
+
+/**
  * Get dashboard overview statistics
  * Returns counts of total calls, lineups, joinings, selections and time spent
  */
@@ -268,10 +340,16 @@ const getTodayOverview = handleAsync(async (req, res) => {
       createdAt: { $gte: today, $lt: tomorrow },
     });
 
-    // Calculate today's time spent based on call durations from candidate records
-    let todayTimeSpent = await calculateTodayTime(employeeId, today, tomorrow);
-    if (!todayTimeSpent || typeof todayTimeSpent !== "string")
-      todayTimeSpent = "0h";
+    // Calculate average time per call directly
+    const averageCallTimeMinutes = await calculateAverageCallTime(
+      employeeId,
+      today,
+      tomorrow
+    );
+    const todayAverageTime =
+      averageCallTimeMinutes > 0
+        ? averageCallTimeMinutes.toFixed(2) + "m"
+        : "0m";
 
     return res.status(200).json({
       success: true,
@@ -280,7 +358,7 @@ const getTodayOverview = handleAsync(async (req, res) => {
         todayLineups: todayLineups || 0,
         todayJoinings: todayJoinings || 0,
         todaySelections: todaySelections || 0,
-        todayTimeSpent: todayTimeSpent,
+        todayTimeSpent: todayAverageTime,
       },
     });
   } catch (error) {
@@ -448,8 +526,16 @@ const getCompleteAnalytics = handleAsync(async (req, res) => {
     if (!todayTimeSpent || typeof todayTimeSpent !== "string")
       todayTimeSpent = "0h 0m";
 
+    // Calculate average time per call directly
+    const averageCallTimeMinutes = await calculateAverageCallTime(
+      employeeId,
+      today,
+      tomorrow
+    );
     const todayAverageTime =
-      todayCalls > 0 ? (todayTimeSpent / todayCalls).toFixed(2) + "m" : "0m";
+      averageCallTimeMinutes > 0
+        ? averageCallTimeMinutes.toFixed(2) + "m"
+        : "0m";
 
     return res.status(200).json({
       success: true,
@@ -2200,4 +2286,5 @@ module.exports = {
   getAttendanceCalendar,
   getIncentivesData,
   generateDailyReport,
+  calculateAverageCallTime,
 };

@@ -202,6 +202,11 @@ const createLineup = handleAsync(async (req, res) => {
     // Lock the candidate for 90 days for the current employee
     await lockCandidate(contactNumber, req.employee._id, "joining");
   }
+  // Lock the candidate for lineup status (30 days by default)
+  else {
+    // Lock the candidate for the current employee
+    await lockCandidate(contactNumber, req.employee._id, "lineup");
+  }
 
   // Emit WebSocket event for new lineup
   emitNewFeed({
@@ -495,6 +500,15 @@ const updateLineup = handleAsync(async (req, res) => {
       existingLineup.contactNumber,
       req.employee._id,
       "joining"
+    );
+  }
+  // For status updates other than "Joined", lock the candidate for lineup (30 days by default)
+  else if (updateData.status && updateData.status !== existingLineup.status) {
+    // Lock the candidate for the current employee
+    await lockCandidate(
+      existingLineup.contactNumber,
+      req.employee._id,
+      "lineup"
     );
   }
 

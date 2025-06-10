@@ -27,6 +27,7 @@ const EmployeeSchema = new mongoose.Schema(
         "leaves",
         "edit-profile",
         "dashboard",
+        "notes",
       ],
     },
     address: {

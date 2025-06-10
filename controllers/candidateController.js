@@ -10,6 +10,7 @@ const {
   LINEUP_LOCK_DAYS,
   hasActiveJoining,
   JOINING_LOCK_DAYS,
+  PIPELINE_LOCK_DAYS,
 } = require("../utils/candidateLockManager");
 const BulkUploadCount = require("../models/bulkUploadCountModel");
 const dateUtils = require("../utils/dateUtils");
@@ -372,6 +373,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
     interviewDate,
     walkinDate,
     remarks,
+    pursuingIn,
   } = req.body;
 
   // Check if candidate with same mobile number exists
@@ -431,7 +433,8 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
   const hasLockableStatus =
     callStatus &&
     (callStatus.toLowerCase() === "lineup" ||
-      callStatus.toLowerCase() === "walkin at infidea");
+      callStatus.toLowerCase() === "walkin at infidea" ||
+      callStatus.toLowerCase() === "pipeline");
 
   // Set registration lock expiry date if lockable status
   let registrationLockExpiry = null;
@@ -439,9 +442,15 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
 
   if (hasLockableStatus) {
     registrationLockExpiry = dateUtils.getCurrentDate();
-    registrationLockExpiry.setDate(
-      registrationLockExpiry.getDate() + LINEUP_LOCK_DAYS
-    );
+    if (callStatus.toLowerCase() === "pipeline") {
+      registrationLockExpiry.setDate(
+        registrationLockExpiry.getDate() + PIPELINE_LOCK_DAYS
+      );
+    } else {
+      registrationLockExpiry.setDate(
+        registrationLockExpiry.getDate() + LINEUP_LOCK_DAYS
+      );
+    }
     isLocked = true;
   }
 
@@ -487,6 +496,7 @@ exports.createCandidate = handleAsync(async (req, res, next) => {
     experience: experience || "-",
     qualification: qualification || "-",
     passingYear: passingYear || "-",
+    pursuingIn: pursuingIn || "-",
     state: state || "-",
     city: city || "-",
     salaryExpectation: salaryExpectation || "-",
@@ -989,17 +999,19 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     req.body.walkinRemarksHistory = existingCandidate.walkinRemarksHistory;
   }
 
-  // Check if moving to a lockable status (Lineup or Walkin at Infidea)
+  // Check if moving to a lockable status (Lineup, Walkin at Infidea, or Pipeline)
   const isMovingToLockableStatus =
     req.body.callStatus &&
     (req.body.callStatus.toLowerCase() === "lineup" ||
-      req.body.callStatus.toLowerCase() === "walkin at infidea");
+      req.body.callStatus.toLowerCase() === "walkin at infidea" ||
+      req.body.callStatus.toLowerCase() === "pipeline");
 
   // Check if was already a lockable status
   const wasAlreadyLockableStatus =
     existingCandidate.callStatus &&
     (existingCandidate.callStatus.toLowerCase() === "lineup" ||
-      existingCandidate.callStatus.toLowerCase() === "walkin at infidea");
+      existingCandidate.callStatus.toLowerCase() === "walkin at infidea" ||
+      existingCandidate.callStatus.toLowerCase() === "pipeline");
 
   // Check if the candidate is not already locked and either:
   // 1. The candidate is being moved to a lockable status from a non-lockable status, or
@@ -1011,10 +1023,16 @@ exports.updateCandidate = handleAsync(async (req, res, next) => {
     (!wasAlreadyLockableStatus ||
       existingCandidate.registrationLockExpiry < dateUtils.getCurrentDate())
   ) {
-    // Set registration lock for lineup days
+    // Set registration lock expiry based on status
+    let lockDays = LINEUP_LOCK_DAYS;
+
+    if (req.body.callStatus.toLowerCase() === "pipeline") {
+      lockDays = PIPELINE_LOCK_DAYS;
+    }
+
     const registrationLockExpiry = dateUtils.addTime(
       dateUtils.getCurrentDate(),
-      LINEUP_LOCK_DAYS,
+      lockDays,
       "days"
     );
 
@@ -1233,7 +1251,8 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
         const hasLockableStatus =
           callStatus &&
           (callStatus.toLowerCase() === "lineup" ||
-            callStatus.toLowerCase() === "walkin at infidea");
+            callStatus.toLowerCase() === "walkin at infidea" ||
+            callStatus.toLowerCase() === "pipeline");
 
         // Set registration lock expiry date if lockable status
         let registrationLockExpiry = null;
@@ -1241,9 +1260,15 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
 
         if (hasLockableStatus) {
           registrationLockExpiry = dateUtils.getCurrentDate();
-          registrationLockExpiry.setDate(
-            registrationLockExpiry.getDate() + LINEUP_LOCK_DAYS
-          );
+          if (callStatus.toLowerCase() === "pipeline") {
+            registrationLockExpiry.setDate(
+              registrationLockExpiry.getDate() + PIPELINE_LOCK_DAYS
+            );
+          } else {
+            registrationLockExpiry.setDate(
+              registrationLockExpiry.getDate() + LINEUP_LOCK_DAYS
+            );
+          }
           isLocked = true;
         }
 
@@ -1274,8 +1299,10 @@ exports.bulkUploadCandidates = handleAsync(async (req, res, next) => {
           gender: candidate.gender || "-",
           experience: candidate.experience || "-",
           qualification: candidate.qualification || "-",
+          passingYear: candidate.passingYear || "-",
           state: candidate.state || "-",
           city: candidate.city || "-",
+          pursuingIn: candidate.pursuingIn || "-",
           salaryExpectation: candidate.salaryExpectation || "-",
           communication: candidate.communication || "-",
           noticePeriod: candidate.noticePeriod || "-",

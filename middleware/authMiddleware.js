@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const Employee = require("../models/employeeModel");
+const { client, connectRedis } = require("../utils/redisClient");
 
 // Middleware to verify employee token
 const authMiddleware = async (req, res, next) => {
@@ -14,6 +15,15 @@ const authMiddleware = async (req, res, next) => {
     //If no token found, return error
     if (!token) {
       return res.status(401).json({ message: "Unauthorized: Token missing" });
+    }
+
+    // Check if token is blacklisted
+    await connectRedis();
+    const isBlacklisted = await client.get(`blacklisted_token:${token}`);
+    if (isBlacklisted) {
+      return res
+        .status(401)
+        .json({ message: "Unauthorized: Token has been invalidated" });
     }
 
     //Verify token

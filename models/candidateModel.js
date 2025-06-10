@@ -88,6 +88,7 @@ const CandidateSchema = new mongoose.Schema(
     lineupDate: { type: String },
     interviewDate: { type: String },
     walkinDate: { type: String },
+    pursuingIn: { type: String },
     workMode: {
       type: String,
       enum: ["Office", "Hybrid", "Any Mode", "Work From Home"],
@@ -108,7 +109,7 @@ const CandidateSchema = new mongoose.Schema(
     ],
     walkinRemarksHistory: [
       {
-        remark: { type: String, required: true },
+        remark: { type: String },
         date: { type: Date, default: Date.now },
         employee: {
           type: mongoose.Schema.Types.ObjectId,

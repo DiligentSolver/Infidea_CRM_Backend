@@ -350,13 +350,20 @@ exports.verifyLoginAdminOtp = handleAsync(async (req, res) => {
   // Remove password from the response
   delete user.password;
 
-  const { data, iv } = handleEncryptData([...user?.access_list, user.role]);
+  const { data, iv } = handleEncryptData([
+    ...user?.access_list,
+    user.role,
+    token,
+  ]);
 
   return res.status(200).json({
     message: "Login successful",
-    user,
-    token,
-    role: user.role,
+    user: {
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      profileImage: user.profileImage,
+    },
     data,
     iv,
     attendance: {
@@ -535,6 +542,7 @@ exports.verifyEmployeeEmail = handleAsync(async (req, res) => {
 exports.logoutEmployee = handleAsync(async (req, res) => {
   try {
     const employeeId = req.employee._id;
+    const token = req.headers.authorization?.split(" ")[1];
 
     // Fetch the complete employee data to include in notification
     const employee = await Employee.findById(employeeId).lean();
@@ -543,6 +551,16 @@ exports.logoutEmployee = handleAsync(async (req, res) => {
         success: false,
         message: "Employee not found",
       });
+    }
+
+    // Blacklist the token in Redis if it exists
+    if (token) {
+      await connectRedis();
+      // Store the token in blacklist with an expiry matching the token's original expiry
+      // Using 24 hours as default expiry if not specified in environment
+      const tokenExpiry = parseInt(process.env.JWT_EXPIRY || 86400);
+      await client.setEx(`blacklisted_token:${token}`, tokenExpiry, "true");
+      console.info(`Token blacklisted for employee: ${employee.email}`);
     }
 
     // Close all active activities for this employee

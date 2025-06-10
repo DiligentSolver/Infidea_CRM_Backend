@@ -29,7 +29,7 @@ const initScheduler = () => {
     );
     try {
       // Update locks for candidates with active joinings (90-day lock)
-      const joiningCount = syncJoiningCandidateLocks();
+      const joiningCount = await syncJoiningCandidateLocks();
 
       // Check candidates with Walkin or Lineup status (but don't lock them directly)
       const lineupWalkinCount = await syncStatusBasedLocks();

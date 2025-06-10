@@ -5,6 +5,7 @@ require("dotenv").config();
 // Default lock durations if not set in environment variables
 const DEFAULT_LINEUP_LOCK_DAYS = 30;
 const DEFAULT_JOINING_LOCK_DAYS = 90;
+const DEFAULT_PIPELINE_LOCK_DAYS = 3;
 
 // Get lock durations from environment variables or use defaults
 const LINEUP_LOCK_DAYS = parseInt(
@@ -12,6 +13,11 @@ const LINEUP_LOCK_DAYS = parseInt(
 );
 const JOINING_LOCK_DAYS = parseInt(
   process.env.JOINING_LOCK_DAYS || DEFAULT_JOINING_LOCK_DAYS
+);
+
+// New pipeline lock duration
+const PIPELINE_LOCK_DAYS = parseInt(
+  process.env.PIPELINE_LOCK_DAYS || DEFAULT_PIPELINE_LOCK_DAYS
 );
 
 /**
@@ -249,19 +255,100 @@ const syncJoiningCandidateLocks = async () => {
  */
 const syncStatusBasedLocks = async () => {
   try {
-    // Find all candidates with Walkin or Lineup status
+    const currentDate = new Date();
+
+    // Find candidates with lockable status but no active lock
     const candidates = await Candidate.find({
-      callStatus: { $in: ["Walkin", "Lineup"] },
+      $or: [
+        { callStatus: "Lineup", isLocked: false },
+        { callStatus: "Walkin At Infidea", isLocked: false },
+        { callStatus: "Pipeline", isLocked: false },
+        {
+          callStatus: "Lineup",
+          registrationLockExpiry: { $lt: currentDate },
+        },
+        {
+          callStatus: "Walkin At Infidea",
+          registrationLockExpiry: { $lt: currentDate },
+        },
+        {
+          callStatus: "Pipeline",
+          registrationLockExpiry: { $lt: currentDate },
+        },
+      ],
     });
 
-    console.log(
-      `${candidates.length} candidates found with Walkin/Lineup status. No direct locking applied as per new policy.`
-    );
+    let updatedCount = 0;
 
-    // Now we're only returning a count, not updating anything
-    return 0;
+    for (const candidate of candidates) {
+      try {
+        // Set appropriate lock duration based on status
+        let lockDays = LINEUP_LOCK_DAYS;
+        if (candidate.callStatus === "Pipeline") {
+          lockDays = PIPELINE_LOCK_DAYS;
+        }
+
+        const registrationLockExpiry = new Date();
+        registrationLockExpiry.setDate(
+          registrationLockExpiry.getDate() + lockDays
+        );
+
+        candidate.isLocked = true;
+        candidate.registrationLockExpiry = registrationLockExpiry;
+
+        // Handle walkinRemarksHistory for Walkin candidates
+        if (candidate.callStatus === "Walkin At Infidea") {
+          // Initialize the array if it doesn't exist
+          if (!candidate.walkinRemarksHistory) {
+            candidate.walkinRemarksHistory = [];
+          }
+
+          // Check if there are any entries with missing remark fields
+          let hasInvalidEntries = false;
+          if (candidate.walkinRemarksHistory.length > 0) {
+            hasInvalidEntries = candidate.walkinRemarksHistory.some(
+              (entry) => !entry.remark
+            );
+          }
+
+          // If no entries or invalid entries exist, add a valid entry
+          if (
+            candidate.walkinRemarksHistory.length === 0 ||
+            hasInvalidEntries
+          ) {
+            // Remove any invalid entries
+            if (hasInvalidEntries) {
+              candidate.walkinRemarksHistory =
+                candidate.walkinRemarksHistory.filter((entry) => entry.remark);
+            }
+
+            // Add a valid entry
+            candidate.walkinRemarksHistory.push({
+              remark: "Auto-generated lock by system scheduler",
+              date: new Date(),
+              employee: candidate.lastRegisteredBy || candidate.createdBy,
+              walkinDate: candidate.walkinDate || new Date(),
+            });
+          }
+        }
+
+        await candidate.save();
+        updatedCount++;
+      } catch (candidateError) {
+        console.error(
+          `Error updating candidate ${candidate._id}:`,
+          candidateError
+        );
+        // Continue with next candidate
+      }
+    }
+
+    console.log(
+      `${updatedCount} candidates with status-based locks were updated.`
+    );
+    return updatedCount;
   } catch (error) {
-    console.error("Error checking status-based candidate locks:", error);
+    console.error("Error syncing status-based locks:", error);
     throw error;
   }
 };
@@ -275,4 +362,5 @@ module.exports = {
   hasActiveJoining,
   LINEUP_LOCK_DAYS,
   JOINING_LOCK_DAYS,
+  PIPELINE_LOCK_DAYS,
 };

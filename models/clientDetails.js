@@ -22,6 +22,10 @@ const clientDetailsSchema = new mongoose.Schema(
       required: false,
       trim: true,
     },
+    clientRemarks: {
+      type: String,
+      required: false,
+    },
   },
   {
     timestamps: true,
