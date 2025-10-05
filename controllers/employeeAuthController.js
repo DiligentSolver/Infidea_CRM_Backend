@@ -174,9 +174,9 @@ exports.loginEmployee = handleAsync(async (req, res) => {
     return res.status(400).json({ error: "Invalid email format." });
   }
 
-  // Check if the current time is within allowed login hours (9 AM to 9 PM IST)
-  const currentTimeIST = moment().tz(dateUtils.IST_TIMEZONE);
-  const currentHour = currentTimeIST.hour();
+  // // Check if the current time is within allowed login hours (9 AM to 9 PM IST)
+  // const currentTimeIST = moment().tz(dateUtils.IST_TIMEZONE);
+  // const currentHour = currentTimeIST.hour();
 
   console.log(
     `Login attempt - Current IST Hour: ${currentHour}, Full IST time: ${currentTimeIST.format(
@@ -184,13 +184,13 @@ exports.loginEmployee = handleAsync(async (req, res) => {
     )}`
   );
 
-  // Re-enable time restriction with the correct hour check
-  if (currentHour < 9 || currentHour >= 21) {
-    return res.status(403).json({
-      error:
-        "Login is only allowed between 9 AM and 9 PM Indian Standard Time.",
-    });
-  }
+  // // Re-enable time restriction with the correct hour check
+  // if (currentHour < 9 || currentHour >= 21) {
+  //   return res.status(403).json({
+  //     error:
+  //       "Login is only allowed between 9 AM and 9 PM Indian Standard Time.",
+  //   });
+  // }
 
   // Find the user by email and convert to a plain object using .lean()
   const user = await Employee.findOne({ email: formattedEmail }).lean();
