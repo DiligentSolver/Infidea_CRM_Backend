@@ -174,9 +174,9 @@ exports.loginEmployee = handleAsync(async (req, res) => {
     return res.status(400).json({ error: "Invalid email format." });
   }
 
-  // // Check if the current time is within allowed login hours (9 AM to 9 PM IST)
-  // const currentTimeIST = moment().tz(dateUtils.IST_TIMEZONE);
-  // const currentHour = currentTimeIST.hour();
+  // Check if the current time is within allowed login hours (9 AM to 9 PM IST)
+  const currentTimeIST = moment().tz(dateUtils.IST_TIMEZONE);
+  const currentHour = currentTimeIST.hour();
 
   console.log(
     `Login attempt - Current IST Hour: ${currentHour}, Full IST time: ${currentTimeIST.format(
