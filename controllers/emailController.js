@@ -27,13 +27,39 @@ exports.sendEmail = async (req, res) => {
     }
 
     // Create transporter with environment variables
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_ID,
-        pass: process.env.EMAIL_PASSWORD,
-      },
-    });
+    const useService = process.env.EMAIL_SERVICE || "gmail";
+    const host = process.env.SMTP_HOST;
+    const port = process.env.SMTP_PORT
+      ? parseInt(process.env.SMTP_PORT, 10)
+      : undefined;
+    const secure = process.env.SMTP_SECURE
+      ? process.env.SMTP_SECURE === "true"
+      : undefined; // true for 465, false for others
+
+    const baseAuth = {
+      user: process.env.EMAIL_ID,
+      pass: process.env.EMAIL_PASSWORD,
+    };
+
+    const transportOptions = host
+      ? {
+          host,
+          port: port ?? 587,
+          secure: secure ?? false,
+          auth: baseAuth,
+          connectionTimeout: 15_000,
+          greetingTimeout: 10_000,
+          socketTimeout: 20_000,
+        }
+      : {
+          service: useService,
+          auth: baseAuth,
+          connectionTimeout: 15_000,
+          greetingTimeout: 10_000,
+          socketTimeout: 20_000,
+        };
+
+    const transporter = nodemailer.createTransport(transportOptions);
 
     // Configure email options
     const mailOptions = {
@@ -135,13 +161,39 @@ exports.sendLineupEmail = async (req, res) => {
     }
 
     // Create transporter with environment variables
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_ID,
-        pass: process.env.EMAIL_PASSWORD,
-      },
-    });
+    const useService2 = process.env.EMAIL_SERVICE || "gmail";
+    const host2 = process.env.SMTP_HOST;
+    const port2 = process.env.SMTP_PORT
+      ? parseInt(process.env.SMTP_PORT, 10)
+      : undefined;
+    const secure2 = process.env.SMTP_SECURE
+      ? process.env.SMTP_SECURE === "true"
+      : undefined; // true for 465, false for others
+
+    const baseAuth2 = {
+      user: process.env.EMAIL_ID,
+      pass: process.env.EMAIL_PASSWORD,
+    };
+
+    const transportOptions2 = host2
+      ? {
+          host: host2,
+          port: port2 ?? 587,
+          secure: secure2 ?? false,
+          auth: baseAuth2,
+          connectionTimeout: 15_000,
+          greetingTimeout: 10_000,
+          socketTimeout: 20_000,
+        }
+      : {
+          service: useService2,
+          auth: baseAuth2,
+          connectionTimeout: 15_000,
+          greetingTimeout: 10_000,
+          socketTimeout: 20_000,
+        };
+
+    const transporter = nodemailer.createTransport(transportOptions2);
 
     // Generate HTML table from lineup data
     const lineupTable = generateLineupHtmlTable(lineupData);
