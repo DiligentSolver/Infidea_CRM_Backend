@@ -12,6 +12,12 @@ const port = process.env.SMTP_PORT
 const secure = process.env.SMTP_SECURE
   ? process.env.SMTP_SECURE === "true"
   : undefined; // true for 465, false for others
+const requireTLS = process.env.SMTP_REQUIRE_TLS
+  ? process.env.SMTP_REQUIRE_TLS === "true"
+  : undefined;
+const family = process.env.SMTP_FAMILY
+  ? parseInt(process.env.SMTP_FAMILY, 10)
+  : undefined; // 4 to force IPv4, 6 for IPv6
 
 const transportOptions = host
   ? {
@@ -19,6 +25,8 @@ const transportOptions = host
       port: port ?? 587,
       secure: secure ?? false,
       auth: { user: EMAIL_ID, pass: EMAIL_PASSWORD },
+      requireTLS: requireTLS ?? false,
+      family,
       connectionTimeout: 15_000,
       greetingTimeout: 10_000,
       socketTimeout: 20_000,
@@ -26,6 +34,8 @@ const transportOptions = host
   : {
       service: useService,
       auth: { user: EMAIL_ID, pass: EMAIL_PASSWORD },
+      requireTLS: requireTLS ?? false,
+      family,
       connectionTimeout: 15_000,
       greetingTimeout: 10_000,
       socketTimeout: 20_000,

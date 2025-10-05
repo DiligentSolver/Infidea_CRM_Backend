@@ -6,6 +6,7 @@ node_modules/
 
 # Environment files
 .env
+Infidea_CRM_Backend.env
 
 # Dependency directories
 /dist

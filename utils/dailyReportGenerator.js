@@ -31,6 +31,12 @@ const createTransporter = () => {
   const secure = process.env.SMTP_SECURE
     ? process.env.SMTP_SECURE === "true"
     : undefined; // true for 465, false for others
+  const requireTLS = process.env.SMTP_REQUIRE_TLS
+    ? process.env.SMTP_REQUIRE_TLS === "true"
+    : undefined;
+  const family = process.env.SMTP_FAMILY
+    ? parseInt(process.env.SMTP_FAMILY, 10)
+    : undefined; // 4 to force IPv4, 6 for IPv6
 
   const baseAuth = {
     user: process.env.EMAIL_ID,
@@ -43,6 +49,8 @@ const createTransporter = () => {
         port: port ?? 587,
         secure: secure ?? false,
         auth: baseAuth,
+        requireTLS: requireTLS ?? false,
+        family,
         connectionTimeout: 15_000,
         greetingTimeout: 10_000,
         socketTimeout: 20_000,
@@ -50,6 +58,8 @@ const createTransporter = () => {
     : {
         service: useService,
         auth: baseAuth,
+        requireTLS: requireTLS ?? false,
+        family,
         connectionTimeout: 15_000,
         greetingTimeout: 10_000,
         socketTimeout: 20_000,

@@ -8,6 +8,73 @@ if (!fs.existsSync(tempUploadsDir)) {
   fs.mkdirSync(tempUploadsDir, { recursive: true });
 }
 
+// Build a robust SMTP transport config that works across providers (e.g., Gmail)
+function buildSmtpTransportOptions() {
+  const useService = process.env.EMAIL_SERVICE || "gmail";
+  const host = process.env.SMTP_HOST;
+  const envPort = process.env.SMTP_PORT
+    ? parseInt(process.env.SMTP_PORT, 10)
+    : undefined;
+  const envSecure =
+    typeof process.env.SMTP_SECURE === "string"
+      ? process.env.SMTP_SECURE === "true"
+      : undefined;
+  const envRequireTLS =
+    typeof process.env.SMTP_REQUIRE_TLS === "string"
+      ? process.env.SMTP_REQUIRE_TLS === "true"
+      : undefined;
+  const family = process.env.SMTP_FAMILY
+    ? parseInt(process.env.SMTP_FAMILY, 10)
+    : undefined; // 4 to force IPv4, 6 for IPv6
+
+  const auth = {
+    user: process.env.EMAIL_ID,
+    pass: process.env.EMAIL_PASSWORD,
+  };
+
+  // Decide secure/port coherently if not provided or conflicting
+  const secure =
+    envSecure !== undefined ? envSecure : envPort === 465 ? true : false; // default to STARTTLS on 587 when not explicitly secure
+
+  const port = envPort ?? (secure ? 465 : 587);
+
+  // STARTTLS is typical when secure=false (port 587)
+  const requireTLS = envRequireTLS !== undefined ? envRequireTLS : !secure;
+
+  const common = {
+    auth,
+    requireTLS,
+    family, // prefer IPv4 if set to 4 – avoids IPv6 DNS issues on some hosts
+    pool: true, // reuse connections to reduce cold-start and timeouts
+    maxConnections: 3,
+    maxMessages: 50,
+    connectionTimeout: 20_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 25_000,
+    // Enforce modern TLS. servername helps with SNI when using custom hosts
+    tls: {
+      minVersion: "TLSv1.2",
+      servername: host || undefined,
+    },
+  };
+
+  if (host) {
+    return {
+      host,
+      port,
+      secure,
+      ...common,
+    };
+  }
+
+  // Fallback to provider service if no host is specified
+  return {
+    service: useService,
+    secure,
+    ...common,
+  };
+}
+
 /**
  * Send an email with attachments
  * @param {Object} req - Express request object
@@ -26,44 +93,12 @@ exports.sendEmail = async (req, res) => {
       });
     }
 
-    // Create transporter with environment variables
-    const useService = process.env.EMAIL_SERVICE || "gmail";
-    const host = process.env.SMTP_HOST;
-    const port = process.env.SMTP_PORT
-      ? parseInt(process.env.SMTP_PORT, 10)
-      : undefined;
-    const secure = process.env.SMTP_SECURE
-      ? process.env.SMTP_SECURE === "true"
-      : undefined; // true for 465, false for others
-
-    const baseAuth = {
-      user: process.env.EMAIL_ID,
-      pass: process.env.EMAIL_PASSWORD,
-    };
-
-    const transportOptions = host
-      ? {
-          host,
-          port: port ?? 587,
-          secure: secure ?? false,
-          auth: baseAuth,
-          connectionTimeout: 15_000,
-          greetingTimeout: 10_000,
-          socketTimeout: 20_000,
-        }
-      : {
-          service: useService,
-          auth: baseAuth,
-          connectionTimeout: 15_000,
-          greetingTimeout: 10_000,
-          socketTimeout: 20_000,
-        };
-
-    const transporter = nodemailer.createTransport(transportOptions);
+    // Create transporter with robust SMTP options
+    const transporter = nodemailer.createTransport(buildSmtpTransportOptions());
 
     // Configure email options
     const mailOptions = {
-      from: `${process.env.APP_NAME}<${process.env.EMAIL_ID}>`,
+      from: `${process.env.APP_NAME || "CRM System"} <${process.env.EMAIL_ID}>`,
       to,
       subject,
     };
@@ -160,40 +195,8 @@ exports.sendLineupEmail = async (req, res) => {
       });
     }
 
-    // Create transporter with environment variables
-    const useService2 = process.env.EMAIL_SERVICE || "gmail";
-    const host2 = process.env.SMTP_HOST;
-    const port2 = process.env.SMTP_PORT
-      ? parseInt(process.env.SMTP_PORT, 10)
-      : undefined;
-    const secure2 = process.env.SMTP_SECURE
-      ? process.env.SMTP_SECURE === "true"
-      : undefined; // true for 465, false for others
-
-    const baseAuth2 = {
-      user: process.env.EMAIL_ID,
-      pass: process.env.EMAIL_PASSWORD,
-    };
-
-    const transportOptions2 = host2
-      ? {
-          host: host2,
-          port: port2 ?? 587,
-          secure: secure2 ?? false,
-          auth: baseAuth2,
-          connectionTimeout: 15_000,
-          greetingTimeout: 10_000,
-          socketTimeout: 20_000,
-        }
-      : {
-          service: useService2,
-          auth: baseAuth2,
-          connectionTimeout: 15_000,
-          greetingTimeout: 10_000,
-          socketTimeout: 20_000,
-        };
-
-    const transporter = nodemailer.createTransport(transportOptions2);
+    // Create transporter with robust SMTP options
+    const transporter = nodemailer.createTransport(buildSmtpTransportOptions());
 
     // Generate HTML table from lineup data
     const lineupTable = generateLineupHtmlTable(lineupData);
@@ -212,7 +215,7 @@ exports.sendLineupEmail = async (req, res) => {
 
     // Configure email options
     const mailOptions = {
-      from: `${process.env.APP_NAME}<${process.env.EMAIL_ID}>`,
+      from: `${process.env.APP_NAME || "CRM System"} <${process.env.EMAIL_ID}>`,
       to,
       subject,
       html: htmlContent,
