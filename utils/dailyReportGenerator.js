@@ -1,10 +1,10 @@
 const mongoose = require("mongoose");
 const ExcelJS = require("exceljs");
-const nodemailer = require("nodemailer");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
 const fs = require("fs");
 const path = require("path");
+const { sendSimpleEmail } = require("../controllers/simpleEmailController");
 const {
   formatDate,
   toLocaleTimeString,
@@ -21,52 +21,7 @@ const Lineup = require("../models/lineupModel");
 const Joining = require("../models/joiningModel");
 const Candidate = require("../models/candidateModel");
 
-// Configure email transporter
-const createTransporter = () => {
-  const useService = process.env.EMAIL_SERVICE || "gmail";
-  const host = process.env.SMTP_HOST;
-  const port = process.env.SMTP_PORT
-    ? parseInt(process.env.SMTP_PORT, 10)
-    : undefined;
-  const secure = process.env.SMTP_SECURE
-    ? process.env.SMTP_SECURE === "true"
-    : undefined; // true for 465, false for others
-  const requireTLS = process.env.SMTP_REQUIRE_TLS
-    ? process.env.SMTP_REQUIRE_TLS === "true"
-    : undefined;
-  const family = process.env.SMTP_FAMILY
-    ? parseInt(process.env.SMTP_FAMILY, 10)
-    : undefined; // 4 to force IPv4, 6 for IPv6
-
-  const baseAuth = {
-    user: process.env.EMAIL_ID,
-    pass: process.env.EMAIL_PASSWORD,
-  };
-
-  const transportOptions = host
-    ? {
-        host,
-        port: port ?? 587,
-        secure: secure ?? false,
-        auth: baseAuth,
-        requireTLS: requireTLS ?? false,
-        family,
-        connectionTimeout: 15_000,
-        greetingTimeout: 10_000,
-        socketTimeout: 20_000,
-      }
-    : {
-        service: useService,
-        auth: baseAuth,
-        requireTLS: requireTLS ?? false,
-        family,
-        connectionTimeout: 15_000,
-        greetingTimeout: 10_000,
-        socketTimeout: 20_000,
-      };
-
-  return nodemailer.createTransport(transportOptions);
-};
+// Email configuration is now handled by the centralized emailService
 
 /**
  * Format minutes into hours and minutes string
@@ -491,7 +446,6 @@ const generateExcelReport = async (reportData, date) => {
  */
 const sendDailyReportEmail = async (filePath, date) => {
   try {
-    const transporter = createTransporter();
     const formattedDate = formatDate(date, "MMMM D, YYYY");
 
     // Get admin emails from environment variables
@@ -503,39 +457,49 @@ const sendDailyReportEmail = async (filePath, date) => {
 
     if (adminEmails.length === 0) {
       console.error("No admin emails configured. Cannot send report.");
-      return;
+      return false;
     }
 
     // Create email content
-    const mailOptions = {
-      from: `${process.env.APP_NAME}<${process.env.EMAIL_ID}>`,
-      to: adminEmails.join(", "),
-      subject: `Daily Employee Report - ${formattedDate}`,
-      html: `
-        <h1>Daily Employee Report - ${formattedDate}</h1>
-        <p>Please find attached the daily employee activity report for ${formattedDate}.</p>
-        <p>This report includes:</p>
-        <ul>
-          <li>Employee login/logout times and total working hours</li>
-          <li>Number of lineups, candidates, and joinings created</li>
-          <li>Call statistics</li>
-        </ul>
-        <p>If there were any lineups or joinings today, they are included in separate sheets in the attached Excel file.</p>
-        <p>This is an automated report. Please do not reply to this email.</p>
-      `,
-      attachments: [
-        {
-          filename: path.basename(filePath),
-          path: filePath,
-        },
-      ],
-    };
+    const emailContent = `
+      <h1>Daily Employee Report - ${formattedDate}</h1>
+      <p>Please find attached the daily employee activity report for ${formattedDate}.</p>
+      <p>This report includes:</p>
+      <ul>
+        <li>Employee login/logout times and total working hours</li>
+        <li>Number of lineups, candidates, and joinings created</li>
+        <li>Call statistics</li>
+      </ul>
+      <p>If there were any lineups or joinings today, they are included in separate sheets in the attached Excel file.</p>
+      <p>This is an automated report. Please do not reply to this email.</p>
+    `;
 
-    // Send the email
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`Daily report email sent: ${info.response}`);
+    // Send email to each admin individually for better reliability
+    let successCount = 0;
+    for (const adminEmail of adminEmails) {
+      try {
+        await sendEmail(
+          adminEmail,
+          `Daily Employee Report - ${formattedDate}`,
+          emailContent,
+          true // isHtml
+        );
+        successCount++;
+        console.log(`Daily report email sent to: ${adminEmail}`);
+      } catch (error) {
+        console.error(`Failed to send report to ${adminEmail}:`, error.message);
+      }
+    }
 
-    return true;
+    if (successCount > 0) {
+      console.log(
+        `Daily report email sent to ${successCount}/${adminEmails.length} admins`
+      );
+      return true;
+    } else {
+      console.error("Failed to send daily report to any admin");
+      return false;
+    }
   } catch (error) {
     console.error("Error sending daily report email:", error);
     return false;

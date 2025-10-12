@@ -1,6 +1,6 @@
 const { client, connectRedis } = require("../utils/redisClient");
 const { generateOTP } = require("../utils/otpGenerator");
-const sendEmail = require("../utils/emailService");
+const { sendSimpleEmail } = require("../controllers/simpleEmailController");
 const { sendOTP } = require("../utils/sendOtp");
 const bcrypt = require("bcryptjs");
 const { sendFastOTP } = require("../utils/fast2SmsOtp");
@@ -213,7 +213,7 @@ const sendEmailOtpResponse = async (email, subject, otpKey, user = {}, res) => {
     `;
 
     // Send OTP via email with HTML formatting
-    await sendEmail(recipientEmail, subject, emailContent, true);
+    await sendSimpleEmail(recipientEmail, subject, emailContent, true);
 
     console.info(`OTP Sent to ${recipientEmail}: ${otp}`);
     res.status(200).json({ message: "OTP sent successfully" });

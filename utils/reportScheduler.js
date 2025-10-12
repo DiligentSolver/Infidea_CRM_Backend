@@ -1,5 +1,5 @@
 const cron = require("node-cron");
-const { sendEmail } = require("../config/email");
+const { sendSimpleEmail } = require("../controllers/simpleEmailController");
 const {
   dailyReportTemplate,
   weeklyReportTemplate,
@@ -160,13 +160,19 @@ const dailyReportHour = dailyReportTime.hour();
 const dailyReportMinute = dailyReportTime.minute();
 
 cron.schedule(`${dailyReportMinute} ${dailyReportHour} * * *`, async () => {
-  const data = await fetchDailyReportData();
-  const html = dailyReportTemplate(data);
-  await sendEmail(
-    process.env.ADMIN_EMAIL,
-    "Daily Report - Job Marketplace",
-    html
-  );
+  try {
+    const data = await fetchDailyReportData();
+    const html = dailyReportTemplate(data);
+    await sendSimpleEmail(
+      process.env.ADMIN_EMAIL,
+      "Daily Report - Job Marketplace",
+      html,
+      true // isHtml
+    );
+    console.log("Daily report email sent successfully");
+  } catch (error) {
+    console.error("Error sending daily report email:", error);
+  }
 });
 
 // Schedule weekly report (runs at 8 AM IST every Monday)
@@ -178,13 +184,19 @@ const weeklyReportHour = weeklyReportTime.hour();
 const weeklyReportMinute = weeklyReportTime.minute();
 
 cron.schedule(`${weeklyReportMinute} ${weeklyReportHour} * * 1`, async () => {
-  const data = await fetchWeeklyReportData();
-  const html = weeklyReportTemplate(data);
-  await sendEmail(
-    process.env.ADMIN_EMAIL,
-    "Weekly Report - Job Marketplace",
-    html
-  );
+  try {
+    const data = await fetchWeeklyReportData();
+    const html = weeklyReportTemplate(data);
+    await sendSimpleEmail(
+      process.env.ADMIN_EMAIL,
+      "Weekly Report - Job Marketplace",
+      html,
+      true // isHtml
+    );
+    console.log("Weekly report email sent successfully");
+  } catch (error) {
+    console.error("Error sending weekly report email:", error);
+  }
 });
 
 // Schedule monthly report (runs at 8 AM IST on the 1st of every month)
@@ -196,11 +208,17 @@ const monthlyReportHour = monthlyReportTime.hour();
 const monthlyReportMinute = monthlyReportTime.minute();
 
 cron.schedule(`${monthlyReportMinute} ${monthlyReportHour} 1 * *`, async () => {
-  const data = await fetchMonthlyReportData();
-  const html = monthlyReportTemplate(data);
-  await sendEmail(
-    process.env.ADMIN_EMAIL,
-    "Monthly Report - Job Marketplace",
-    html
-  );
+  try {
+    const data = await fetchMonthlyReportData();
+    const html = monthlyReportTemplate(data);
+    await sendSimpleEmail(
+      process.env.ADMIN_EMAIL,
+      "Monthly Report - Job Marketplace",
+      html,
+      true // isHtml
+    );
+    console.log("Monthly report email sent successfully");
+  } catch (error) {
+    console.error("Error sending monthly report email:", error);
+  }
 });

@@ -1,7 +1,8 @@
-const sendEmail = require("./emailService");
+const {
+  sendLoginVerificationEmail,
+  sendLogoutNotificationEmail,
+} = require("../controllers/simpleEmailController");
 const { generateOTP } = require("./otpGenerator");
-const adminLoginOtpTemplate = require("./emailTemplates/adminLoginOtpTemplate");
-const adminLogoutNotificationTemplate = require("./emailTemplates/adminLogoutNotificationTemplate");
 const { client, connectRedis } = require("./redisClient");
 const { formatDate, toLocaleTimeString } = require("./dateUtils");
 const geoip = require("geoip-lite");
@@ -89,16 +90,7 @@ const sendLoginVerificationOTP = async (employee, ipAddress) => {
   const adminEmail = process.env.ADMIN_EMAIL;
   const supervisorEmail = process.env.SUPERVISOR_EMAIL;
 
-  // Create email content with HTML template
-  const emailHtml = adminLoginOtpTemplate(
-    employee,
-    otp,
-    currentTime,
-    displayIp,
-    locationInfo
-  );
-
-  // Construct list of recipients
+  // Check if admin emails are configured
   const recipients = [superAdminEmail, adminEmail, supervisorEmail].filter(
     (email) => email && email.trim() !== ""
   );
@@ -113,19 +105,9 @@ const sendLoginVerificationOTP = async (employee, ipAddress) => {
 
   await client.setEx(otpKey, otpExpiry, otp);
 
-  // Send email to all admin recipients
+  // Send email using the new simple email controller
   try {
-    for (const recipientEmail of recipients) {
-      await sendEmail(
-        recipientEmail,
-        `Login Verification Required - ${
-          employee.name?.en || employee.name || employee.email
-        }`,
-        emailHtml,
-        true // isHtml flag
-      );
-    }
-
+    await sendLoginVerificationEmail(employee, otp, displayIp);
     console.info(
       `Login verification OTP sent to admins for employee: ${employee.email}`
     );
@@ -164,15 +146,7 @@ const sendLogoutNotification = async (employee, ipAddress) => {
   const adminEmail = process.env.ADMIN_EMAIL;
   const supervisorEmail = process.env.SUPERVISOR_EMAIL;
 
-  // Create email content with HTML template
-  const emailHtml = adminLogoutNotificationTemplate(
-    employee,
-    logoutTime,
-    displayIp,
-    locationInfo
-  );
-
-  // Construct list of recipients
+  // Check if admin emails are configured
   const recipients = [superAdminEmail, adminEmail, supervisorEmail].filter(
     (email) => email && email.trim() !== ""
   );
@@ -181,19 +155,9 @@ const sendLogoutNotification = async (employee, ipAddress) => {
     throw new Error("No admin emails configured in environment variables");
   }
 
-  // Send email to all admin recipients
+  // Send email using the new simple email controller
   try {
-    for (const recipientEmail of recipients) {
-      await sendEmail(
-        recipientEmail,
-        `Logout Notification - ${
-          employee.name?.en || employee.name || employee.email
-        }`,
-        emailHtml,
-        true // isHtml flag
-      );
-    }
-
+    await sendLogoutNotificationEmail(employee, displayIp);
     console.info(
       `Logout notification sent to admins for employee: ${employee.email}`
     );

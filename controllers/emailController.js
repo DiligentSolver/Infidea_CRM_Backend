@@ -1,78 +1,14 @@
-const nodemailer = require("nodemailer");
 const path = require("path");
 const fs = require("fs");
+const {
+  createGmailTransporter,
+  sendEmailWithRetry,
+} = require("./simpleEmailController");
 
 // Create temporary directory for file uploads if it doesn't exist
 const tempUploadsDir = path.join(__dirname, "../uploads/temp");
 if (!fs.existsSync(tempUploadsDir)) {
   fs.mkdirSync(tempUploadsDir, { recursive: true });
-}
-
-// Build a robust SMTP transport config that works across providers (e.g., Gmail)
-function buildSmtpTransportOptions() {
-  const useService = process.env.EMAIL_SERVICE || "gmail";
-  const host = process.env.SMTP_HOST;
-  const envPort = process.env.SMTP_PORT
-    ? parseInt(process.env.SMTP_PORT, 10)
-    : undefined;
-  const envSecure =
-    typeof process.env.SMTP_SECURE === "string"
-      ? process.env.SMTP_SECURE === "true"
-      : undefined;
-  const envRequireTLS =
-    typeof process.env.SMTP_REQUIRE_TLS === "string"
-      ? process.env.SMTP_REQUIRE_TLS === "true"
-      : undefined;
-  const family = process.env.SMTP_FAMILY
-    ? parseInt(process.env.SMTP_FAMILY, 10)
-    : undefined; // 4 to force IPv4, 6 for IPv6
-
-  const auth = {
-    user: process.env.EMAIL_ID,
-    pass: process.env.EMAIL_PASSWORD,
-  };
-
-  // Decide secure/port coherently if not provided or conflicting
-  const secure =
-    envSecure !== undefined ? envSecure : envPort === 465 ? true : false; // default to STARTTLS on 587 when not explicitly secure
-
-  const port = envPort ?? (secure ? 465 : 587);
-
-  // STARTTLS is typical when secure=false (port 587)
-  const requireTLS = envRequireTLS !== undefined ? envRequireTLS : !secure;
-
-  const common = {
-    auth,
-    requireTLS,
-    family, // prefer IPv4 if set to 4 – avoids IPv6 DNS issues on some hosts
-    pool: true, // reuse connections to reduce cold-start and timeouts
-    maxConnections: 3,
-    maxMessages: 50,
-    connectionTimeout: 20_000,
-    greetingTimeout: 15_000,
-    socketTimeout: 25_000,
-    // Enforce modern TLS. servername helps with SNI when using custom hosts
-    tls: {
-      minVersion: "TLSv1.2",
-      servername: host || undefined,
-    },
-  };
-
-  if (host) {
-    return {
-      host,
-      port,
-      secure,
-      ...common,
-    };
-  }
-
-  // Fallback to provider service if no host is specified
-  return {
-    service: useService,
-    secure,
-    ...common,
-  };
 }
 
 /**
@@ -93,8 +29,8 @@ exports.sendEmail = async (req, res) => {
       });
     }
 
-    // Create transporter with robust SMTP options
-    const transporter = nodemailer.createTransport(buildSmtpTransportOptions());
+    // Create transporter using the simple email controller
+    const transporter = createGmailTransporter();
 
     // Configure email options
     const mailOptions = {
@@ -135,8 +71,8 @@ exports.sendEmail = async (req, res) => {
       }
     }
 
-    // Send the email
-    const info = await transporter.sendMail(mailOptions);
+    // Send the email with retry logic
+    const info = await sendEmailWithRetry(transporter, mailOptions);
 
     // Clean up any temporary files
     if (req.files) {
@@ -195,8 +131,8 @@ exports.sendLineupEmail = async (req, res) => {
       });
     }
 
-    // Create transporter with robust SMTP options
-    const transporter = nodemailer.createTransport(buildSmtpTransportOptions());
+    // Create transporter using the simple email controller
+    const transporter = createGmailTransporter();
 
     // Generate HTML table from lineup data
     const lineupTable = generateLineupHtmlTable(lineupData);
@@ -225,8 +161,8 @@ exports.sendLineupEmail = async (req, res) => {
     if (cc) mailOptions.cc = cc;
     if (bcc) mailOptions.bcc = bcc;
 
-    // Send the email
-    const info = await transporter.sendMail(mailOptions);
+    // Send the email with retry logic
+    const info = await sendEmailWithRetry(transporter, mailOptions);
     console.log(info);
 
     return res.status(200).json({
