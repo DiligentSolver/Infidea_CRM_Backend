@@ -8,26 +8,54 @@ require("dotenv").config({ path: "./Infidea_CRM_Backend.env" });
 
 // Create a simple Gmail SMTP transporter with optimized settings
 const createGmailTransporter = () => {
-  return nodemailer.createTransport({
-    service: "gmail",
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true, // Use SSL
-    auth: {
-      user: process.env.EMAIL_ID,
-      pass: process.env.EMAIL_PASSWORD,
-    },
-    // Optimized settings for Gmail
-    pool: true,
-    maxConnections: 2,
-    maxMessages: 10,
-    connectionTimeout: 30000,
-    greetingTimeout: 20000,
-    socketTimeout: 30000,
-    tls: {
-      minVersion: "TLSv1.2",
-    },
-  });
+  // Check if running on Render.com or production
+  const isProduction = process.env.NODE_ENV === "production";
+  const isRender = process.env.RENDER === "true";
+
+  if (isProduction || isRender) {
+    // Render.com optimized configuration
+    return nodemailer.createTransport({
+      service: "gmail",
+      host: "smtp.gmail.com",
+      port: 587, // Use port 587 for Render.com
+      secure: false, // Use STARTTLS instead of SSL
+      auth: {
+        user: process.env.EMAIL_ID,
+        pass: process.env.EMAIL_PASSWORD,
+      },
+      pool: true,
+      maxConnections: 2,
+      maxMessages: 10,
+      connectionTimeout: 60000, // Increased timeout for Render
+      greetingTimeout: 30000,
+      socketTimeout: 60000,
+      tls: {
+        minVersion: "TLSv1.2",
+        rejectUnauthorized: false, // For Render.com compatibility
+      },
+    });
+  } else {
+    // Local development configuration
+    return nodemailer.createTransport({
+      service: "gmail",
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true, // Use SSL
+      auth: {
+        user: process.env.EMAIL_ID,
+        pass: process.env.EMAIL_PASSWORD,
+      },
+      pool: true,
+      maxConnections: 2,
+      maxMessages: 10,
+      connectionTimeout: 30000,
+      greetingTimeout: 20000,
+      socketTimeout: 30000,
+      tls: {
+        minVersion: "TLSv1.2",
+      },
+    });
+  }
 };
 
 // Retry logic for email sending
@@ -41,7 +69,13 @@ const sendEmailWithRetry = async (transporter, mailOptions, retryCount = 0) => {
   } catch (error) {
     console.error(
       `❌ Email send failed (attempt ${retryCount + 1}/${maxRetries + 1}):`,
-      error.message
+      {
+        message: error.message,
+        code: error.code,
+        command: error.command,
+        response: error.response,
+        stack: error.stack,
+      }
     );
 
     // Retry logic for specific errors
