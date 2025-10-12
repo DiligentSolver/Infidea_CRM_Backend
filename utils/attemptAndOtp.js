@@ -1,4 +1,4 @@
-const { client, connectRedis } = require("../utils/redisClient");
+const { getRedisClient, connectRedis } = require("../utils/redisClient");
 const { generateOTP } = require("../utils/otpGenerator");
 const { sendSimpleEmail } = require("../controllers/simpleEmailController");
 const { sendOTP } = require("../utils/sendOtp");
@@ -26,19 +26,19 @@ const checkOtpAttempts = async (identifier, key, maxAttempts, res) => {
 
   await connectRedis();
 
-  await client.del(key);
+  await getRedisClient().del(key);
 
-  let attempts = parseInt(await client.get(key)) || 0;
+  let attempts = parseInt(await getRedisClient().get(key)) || 0;
 
   // Increment the key only if it's less than MAX_ATTEMPTS * 2
   if (attempts <= maxAttempts * 2) {
-    await client.incr(key);
+    await getRedisClient().incr(key);
   }
 
   if (attempts >= maxAttempts) {
     let blockDuration;
     let blockMessage;
-    let remainingTime = await client.ttl(key); // Get the remaining TTL in seconds
+    let remainingTime = await getRedisClient().ttl(key); // Get the remaining TTL in seconds
 
     console.info(attempts);
 
@@ -52,7 +52,7 @@ const checkOtpAttempts = async (identifier, key, maxAttempts, res) => {
 
     // Set the expiry only when attempts reach maxAttempts or maxAttempts * 2
     if (attempts === maxAttempts || attempts === maxAttempts * 2) {
-      await client.expire(key, blockDuration);
+      await getRedisClient().expire(key, blockDuration);
     }
 
     if (
@@ -71,7 +71,7 @@ const checkOtpAttempts = async (identifier, key, maxAttempts, res) => {
     return res.status(429).json({ message: blockMessage });
   }
 
-  await client.incr(key);
+  await getRedisClient().incr(key);
   return false;
 };
 
@@ -81,19 +81,19 @@ const checkVerifyAttempts = async (identifier, key, maxAttempts, res) => {
 
   await connectRedis();
 
-  await client.del(key);
+  await getRedisClient().del(key);
 
-  let attempts = parseInt(await client.get(key)) || 0;
+  let attempts = parseInt(await getRedisClient().get(key)) || 0;
 
   // Increment the key only if it's less than MAX_ATTEMPTS * 2
   if (attempts <= maxAttempts * 2) {
-    await client.incr(key);
+    await getRedisClient().incr(key);
   }
 
   if (attempts >= maxAttempts) {
     let blockDuration;
     let blockMessage;
-    let remainingTime = await client.ttl(key); // Get the remaining TTL in seconds
+    let remainingTime = await getRedisClient().ttl(key); // Get the remaining TTL in seconds
 
     console.info(attempts);
 
@@ -107,7 +107,7 @@ const checkVerifyAttempts = async (identifier, key, maxAttempts, res) => {
 
     // Set the expiry only when attempts reach maxAttempts or maxAttempts * 2
     if (attempts === maxAttempts || attempts === maxAttempts * 2) {
-      await client.expire(key, blockDuration);
+      await getRedisClient().expire(key, blockDuration);
     }
 
     if (
@@ -139,7 +139,7 @@ const sendOtpResponse = async (mobile, res) => {
 
     // sendFastOTP(mobile, otp);
 
-    await client.setEx(
+    await getRedisClient().setEx(
       `otp:${mobile}`,
       parseInt(process.env.OTP_EXPIRY) * 60,
       hashedOtp
@@ -160,7 +160,7 @@ const sendEmailOtpResponse = async (email, subject, otpKey, user = {}, res) => {
     const otpExpiry = parseInt(process.env.OTP_EXPIRY) * 60; // Convert to seconds
 
     // Store OTP in Redis with a 10-minute expiration
-    await client.setEx(`${otpKey}:${email}`, otpExpiry, otp);
+    await getRedisClient().setEx(`${otpKey}:${email}`, otpExpiry, otp);
 
     // Determine recipient email (use `email` if `user.email` is not available)
     const recipientEmail = user?.email || email;

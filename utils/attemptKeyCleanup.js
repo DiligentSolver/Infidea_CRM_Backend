@@ -1,4 +1,4 @@
-const { client, connectRedis } = require("./redisClient");
+const { getRedisClient, connectRedis } = require("./redisClient");
 
 const cleanupAttemptKeys = async (identifier) => {
   const keysToRemove = [
@@ -19,7 +19,7 @@ const cleanupAttemptKeys = async (identifier) => {
   try {
     connectRedis();
 
-    await Promise.all(keysToRemove.map((key) => client.del(key)));
+    await Promise.all(keysToRemove.map((key) => getRedisClient().del(key)));
     console.info(`Cleaned up Attempt keys for ${identifier}`);
   } catch (error) {
     console.error(`Error cleaning up Attempt keys:`, error);

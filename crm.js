@@ -14,7 +14,7 @@ const candidateRoutes = require("./routes/candidateRoutes");
 const activityRoutes = require("./routes/activityRoutes");
 const leaveRoutes = require("./routes/leaveRoutes");
 const errorHandler = require("./middleware/errorHandler");
-const { client } = require("./utils/redisClient");
+const { getRedisClient, connectRedis } = require("./utils/redisClient");
 const notificationRoutes = require("./routes/notificationRoutes");
 const limiter = require("./middleware/ratelimiterRedis");
 const emailRoutes = require("./routes/emailRoutes"); // Import email routes
@@ -35,9 +35,13 @@ const { scheduleDailyReport } = require("./utils/dailyReportGenerator");
 const moment = require("moment-timezone");
 const { IST_TIMEZONE } = require("./utils/dateUtils");
 const clientDetailsRoutes = require("./routes/clientDetails");
+const databaseExportRoutes = require("./routes/databaseExportRoutes");
 
 dotenv.config();
 connectDB();
+
+// Connect to Redis after environment variables are loaded
+connectRedis();
 
 // Configure Express to trust proxies for accurate IP detection
 // This allows req.ip to return the correct client IP when behind a proxy
@@ -101,6 +105,7 @@ app.use("/crm/api/email", emailRoutes); // Add email routes
 app.use("/crm/api/thoughts", thoughtRoutes); // Add thought routes
 app.use("/crm/api/clients", clientDetailsRoutes); // Add client details routes
 app.use("/crm/api/notes", noteRoutes); // Add note routes
+app.use("/crm/api/export", databaseExportRoutes); // Add database export routes
 
 // Configure file upload middleware
 app.use(
@@ -176,11 +181,16 @@ app.get("/crm/api/health-check", (req, res) => {
 });
 
 async function closeRedis() {
-  if (client.isOpen) {
-    console.log("Closing Redis connection...");
-    await client.quit();
-  } else {
-    console.log("Redis client is already closed.");
+  try {
+    const client = getRedisClient();
+    if (client && client.isOpen) {
+      console.log("Closing Redis connection...");
+      await client.quit();
+    } else {
+      console.log("Redis client is already closed.");
+    }
+  } catch (err) {
+    console.error("Error closing Redis connection:", err);
   }
   process.exit(0);
 }
