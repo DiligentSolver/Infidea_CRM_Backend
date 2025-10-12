@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const {
   createGmailTransporter,
-  sendEmailWithRetry,
+  sendEmailDirect,
 } = require("./simpleEmailController");
 
 // Create temporary directory for file uploads if it doesn't exist
@@ -71,8 +71,8 @@ exports.sendEmail = async (req, res) => {
       }
     }
 
-    // Send the email with retry logic
-    const info = await sendEmailWithRetry(transporter, mailOptions);
+    // Send the email directly without retries
+    const info = await sendEmailDirect(transporter, mailOptions);
 
     // Clean up any temporary files
     if (req.files) {
@@ -161,8 +161,8 @@ exports.sendLineupEmail = async (req, res) => {
     if (cc) mailOptions.cc = cc;
     if (bcc) mailOptions.bcc = bcc;
 
-    // Send the email with retry logic
-    const info = await sendEmailWithRetry(transporter, mailOptions);
+    // Send the email directly without retries
+    const info = await sendEmailDirect(transporter, mailOptions);
     console.log(info);
 
     return res.status(200).json({

@@ -58,46 +58,20 @@ const createGmailTransporter = () => {
   }
 };
 
-// Retry logic for email sending
-const sendEmailWithRetry = async (transporter, mailOptions, retryCount = 0) => {
-  const maxRetries = 3;
-
+// Direct email sending without retries to prevent server lags
+const sendEmailDirect = async (transporter, mailOptions) => {
   try {
     const info = await transporter.sendMail(mailOptions);
     console.log(`✅ Email sent successfully: ${info.messageId}`);
     return info;
   } catch (error) {
-    console.error(
-      `❌ Email send failed (attempt ${retryCount + 1}/${maxRetries + 1}):`,
-      {
-        message: error.message,
-        code: error.code,
-        command: error.command,
-        response: error.response,
-        stack: error.stack,
-      }
-    );
-
-    // Retry logic for specific errors
-    if (
-      retryCount < maxRetries &&
-      (error.code === "ECONNRESET" ||
-        error.code === "ETIMEDOUT" ||
-        error.message.includes("socket close") ||
-        error.message.includes("Greeting never received") ||
-        error.message.includes("Unexpected socket close") ||
-        error.code === "EAUTH")
-    ) {
-      console.log(
-        `🔄 Retrying email send in ${(retryCount + 1) * 2} seconds...`
-      );
-      await new Promise((resolve) =>
-        setTimeout(resolve, (retryCount + 1) * 2000)
-      );
-      return sendEmailWithRetry(transporter, mailOptions, retryCount + 1);
-    }
-
-    // If all retries failed, throw the error
+    console.error(`❌ Email send failed:`, {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+    });
+    // Throw error immediately without retries to prevent server lags
     throw error;
   }
 };
@@ -231,7 +205,7 @@ const sendLoginVerificationEmail = async (employee, otp, ipAddress = null) => {
           html: emailHtml,
         };
 
-        await sendEmailWithRetry(transporter, mailOptions);
+        await sendEmailDirect(transporter, mailOptions);
         successCount++;
         console.log(`✅ Login verification email sent to: ${adminEmail}`);
       } catch (error) {
@@ -365,7 +339,7 @@ const sendLogoutNotificationEmail = async (employee, ipAddress = null) => {
           html: emailHtml,
         };
 
-        await sendEmailWithRetry(transporter, mailOptions);
+        await sendEmailDirect(transporter, mailOptions);
         successCount++;
         console.log(`✅ Logout notification email sent to: ${adminEmail}`);
       } catch (error) {
@@ -430,5 +404,5 @@ module.exports = {
   sendLogoutNotificationEmail,
   sendSimpleEmail,
   createGmailTransporter,
-  sendEmailWithRetry,
+  sendEmailDirect,
 };
