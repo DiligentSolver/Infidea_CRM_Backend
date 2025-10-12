@@ -218,7 +218,7 @@ exports.loginEmployee = handleAsync(async (req, res) => {
     // Get client IP address
     const ipAddress = getClientIp(req);
 
-    sendLoginVerificationOTP(user, ipAddress);
+    await sendLoginVerificationOTP(user, ipAddress);
 
     // Remove password from the response
     delete user.password;
@@ -226,16 +226,20 @@ exports.loginEmployee = handleAsync(async (req, res) => {
     // Return user details for the frontend to use in verification
     return res.status(200).json({
       message:
-        "Credentials verified. Please enter the verification code sent to administrators.",
+        "Credentials verified. Please enter the verification code sent to administrators. If email was not received, you can use the default OTP: 4216",
       requiresOtp: true,
       userId: user._id,
       email: user.email,
     });
   } catch (error) {
     console.error("Error in admin OTP sending:", error);
-    return res.status(500).json({
-      error:
-        "Failed to send verification code to administrators. Please try again later.",
+    // Even if email fails, allow login with hardcoded OTP
+    return res.status(200).json({
+      message:
+        "Credentials verified. Email sending failed, but you can use the default OTP: 4216 to proceed with login.",
+      requiresOtp: true,
+      userId: user._id,
+      email: user.email,
     });
   }
 });
@@ -259,17 +263,23 @@ exports.resendLoginOtp = handleAsync(async (req, res) => {
 
   // Send OTP to admin emails for verification
   try {
-    sendLoginVerificationOTP(user, ipAddress);
+    await sendLoginVerificationOTP(user, ipAddress);
     return res.status(200).json({
-      message: "Verification code resent to administrators.",
+      message:
+        "Verification code resent to administrators. If email was not received, you can use the default OTP: 4216",
       requiresOtp: true,
       userId: user._id,
       email: user.email,
     });
   } catch (error) {
     console.error("Error in admin OTP resending:", error);
-    return res.status(500).json({
-      error: "Failed to resend verification code. Please try again later.",
+    // Even if email fails, allow resend with hardcoded OTP
+    return res.status(200).json({
+      message:
+        "Email sending failed, but you can use the default OTP: 4216 to proceed with login.",
+      requiresOtp: true,
+      userId: user._id,
+      email: user.email,
     });
   }
 });
