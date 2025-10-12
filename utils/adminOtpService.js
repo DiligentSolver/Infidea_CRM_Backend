@@ -105,21 +105,12 @@ const sendLoginVerificationOTP = async (employee, ipAddress) => {
 
   await client.setEx(otpKey, otpExpiry, otp);
 
-  // Send email using the new simple email controller
-  try {
-    await sendLoginVerificationEmail(employee, otp, displayIp);
-    console.info(
-      `Login verification OTP sent to admins for employee: ${employee.email}`
-    );
-    return otp; // Return OTP for testing purposes
-  } catch (error) {
-    console.error("Error sending admin verification emails:", error);
-    console.log(
-      "Email failed, but OTP is stored in Redis. Default OTP 4216 can be used as fallback."
-    );
-    // Don't throw error - allow login to proceed with hardcoded OTP
-    return otp; // Still return the generated OTP
-  }
+  // Email service disabled - using hardcoded OTP only
+  console.log(
+    `Email service disabled. Using hardcoded OTP 4216 for employee: ${employee.email}`
+  );
+  console.log("Login verification will use hardcoded OTP: 4216");
+  return "4216"; // Always return hardcoded OTP
 };
 
 /**
@@ -159,18 +150,11 @@ const sendLogoutNotification = async (employee, ipAddress) => {
     throw new Error("No admin emails configured in environment variables");
   }
 
-  // Send email using the new simple email controller
-  try {
-    await sendLogoutNotificationEmail(employee, displayIp);
-    console.info(
-      `Logout notification sent to admins for employee: ${employee.email}`
-    );
-    return true;
-  } catch (error) {
-    console.error("Error sending admin logout notifications:", error);
-    // Don't throw error to prevent affecting the logout process
-    return false;
-  }
+  // Email service disabled - no logout notifications sent
+  console.log(
+    `Email service disabled. No logout notification sent for employee: ${employee.email}`
+  );
+  return true; // Return true to not affect logout process
 };
 
 /**

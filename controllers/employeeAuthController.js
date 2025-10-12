@@ -226,17 +226,17 @@ exports.loginEmployee = handleAsync(async (req, res) => {
     // Return user details for the frontend to use in verification
     return res.status(200).json({
       message:
-        "Credentials verified. Please enter the verification code sent to administrators. If email was not received, you can use the default OTP: 4216",
+        "Credentials verified. Email service is disabled. Please use the hardcoded OTP: 4216 to proceed with login.",
       requiresOtp: true,
       userId: user._id,
       email: user.email,
     });
   } catch (error) {
     console.error("Error in admin OTP sending:", error);
-    // Even if email fails, allow login with hardcoded OTP
+    // Email service disabled, use hardcoded OTP
     return res.status(200).json({
       message:
-        "Credentials verified. Email sending failed, but you can use the default OTP: 4216 to proceed with login.",
+        "Credentials verified. Email service is disabled. Please use the hardcoded OTP: 4216 to proceed with login.",
       requiresOtp: true,
       userId: user._id,
       email: user.email,
@@ -266,17 +266,17 @@ exports.resendLoginOtp = handleAsync(async (req, res) => {
     await sendLoginVerificationOTP(user, ipAddress);
     return res.status(200).json({
       message:
-        "Verification code resent to administrators. If email was not received, you can use the default OTP: 4216",
+        "Email service is disabled. Please use the hardcoded OTP: 4216 to proceed with login.",
       requiresOtp: true,
       userId: user._id,
       email: user.email,
     });
   } catch (error) {
     console.error("Error in admin OTP resending:", error);
-    // Even if email fails, allow resend with hardcoded OTP
+    // Email service disabled, use hardcoded OTP
     return res.status(200).json({
       message:
-        "Email sending failed, but you can use the default OTP: 4216 to proceed with login.",
+        "Email service is disabled. Please use the hardcoded OTP: 4216 to proceed with login.",
       requiresOtp: true,
       userId: user._id,
       email: user.email,
