@@ -5,7 +5,7 @@ const Attendance = require("../models/attendanceModel");
 const bcrypt = require("bcryptjs");
 const { cleanupAttemptKeys } = require("../utils/attemptKeyCleanup");
 const { formatAndValidateEmail } = require("../utils/validators/formatEmail");
-const { getRedisClient, connectRedis } = require("../utils/redisClient");
+const { client, connectRedis } = require("../utils/redisClient");
 const { handleEncryptData, signInToken } = require("../config/auth");
 const { closeAllActiveActivities } = require("../utils/activityUtils");
 const {
@@ -98,9 +98,7 @@ exports.verifyEmployeeOtp = handleAsync(async (req, res) => {
   if (await checkVerifyAttempts(formattedEmail, attemptKey, MAX_ATTEMPTS, res))
     return;
 
-  const storedOTP = await getRedisClient().get(
-    `EmployeeRegisterOTP:${formattedEmail}`
-  );
+  const storedOTP = await client.get(`EmployeeRegisterOTP:${formattedEmail}`);
   if (!storedOTP || storedOTP !== otp) {
     return res.status(400).json({ error: "Invalid or expired OTP" });
   }
@@ -430,7 +428,7 @@ exports.resendEmployeeForgotPasswordOtp = handleAsync(async (req, res) => {
 exports.resetEmployeePassword = handleAsync(async (req, res) => {
   const formattedEmail = formatAndValidateEmail(req.body.email);
   const { otp, newPassword } = req.body;
-  const storedOTP = await getRedisClient().get(
+  const storedOTP = await client.get(
     `resetEmployeePasswordOTP:${formattedEmail}`
   );
 
@@ -521,7 +519,7 @@ exports.verifyEmployeeEmail = handleAsync(async (req, res) => {
   if (await checkVerifyAttempts(formattedEmail, attemptKey, MAX_ATTEMPTS, res))
     return;
 
-  const storedOTP = await getRedisClient().get(
+  const storedOTP = await client.get(
     `EmployeeEmailVerificationOTP:${formattedEmail}`
   );
   if (!storedOTP || storedOTP !== otp) {
@@ -561,11 +559,7 @@ exports.logoutEmployee = handleAsync(async (req, res) => {
       // Store the token in blacklist with an expiry matching the token's original expiry
       // Using 24 hours as default expiry if not specified in environment
       const tokenExpiry = parseInt(process.env.JWT_EXPIRY || 86400);
-      await getRedisClient().setEx(
-        `blacklisted_token:${token}`,
-        tokenExpiry,
-        "true"
-      );
+      await client.setEx(`blacklisted_token:${token}`, tokenExpiry, "true");
       console.info(`Token blacklisted for employee: ${employee.email}`);
     }
 

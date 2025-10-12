@@ -3,7 +3,7 @@ const {
   sendLogoutNotificationEmail,
 } = require("../controllers/simpleEmailController");
 const { generateOTP } = require("./otpGenerator");
-const { getRedisClient, connectRedis } = require("./redisClient");
+const { client, connectRedis } = require("./redisClient");
 const { formatDate, toLocaleTimeString } = require("./dateUtils");
 const geoip = require("geoip-lite");
 const axios = require("axios");
@@ -103,7 +103,7 @@ const sendLoginVerificationOTP = async (employee, ipAddress) => {
   const otpExpiry = parseInt(process.env.OTP_EXPIRY || 10) * 60; // Convert to seconds
   const otpKey = `loginVerificationOTP:${employee._id}`;
 
-  await getRedisClient().setEx(otpKey, otpExpiry, otp);
+  await client.setEx(otpKey, otpExpiry, otp);
 
   // Send email using the new simple email controller
   try {
@@ -183,14 +183,14 @@ const verifyLoginOTP = async (employeeId, otp) => {
   await connectRedis();
 
   const otpKey = `loginVerificationOTP:${employeeId}`;
-  const storedOTP = await getRedisClient().get(otpKey);
+  const storedOTP = await client.get(otpKey);
 
   if (!storedOTP || storedOTP !== otp) {
     return false;
   }
 
   // Delete the OTP after successful verification
-  await getRedisClient().del(otpKey);
+  await client.del(otpKey);
   return true;
 };
 

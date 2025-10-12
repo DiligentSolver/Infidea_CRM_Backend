@@ -1,6 +1,6 @@
 const rateLimit = require("express-rate-limit");
 const { RedisStore } = require("rate-limit-redis");
-const { getRedisClient, connectRedis } = require("../utils/redisClient");
+const { client, connectRedis } = require("../utils/redisClient");
 
 // Initialize Redis connection
 connectRedis();
@@ -9,7 +9,7 @@ const limiter = rateLimit({
   // Generate a unique key for each request based on the IP address
   keyGenerator: (req) => req.ip,
   store: new RedisStore({
-    sendCommand: async (...args) => getRedisClient().sendCommand(args),
+    sendCommand: async (...args) => client.sendCommand(args),
     prefix: "rl:",
   }),
   windowMs: 15 * 60 * 1000, // 10 minutes
